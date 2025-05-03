@@ -1,0 +1,10 @@
+auth:
+  radius:
+    remote_addr: localhost:1812
+    local_addr: :3799
+    secret: secret
+services:
+  http:
+    port_range: 8810-8819
+  socks:
+    port_range: 8820-8825

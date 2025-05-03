@@ -1,0 +1,68 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type Controller interface {
+	ID() string
+	WithPassword(ctx context.Context, auth PasswordProxyAuth) (*Session, error)
+}
+
+type ProxyUser struct {
+	Username string
+	Password string
+}
+
+type PasswordProxyAuth struct {
+	ProxyUser
+	ClientIP net.IP
+	NasAddr  net.IP
+	NasPort  int
+}
+
+type CacheEntry interface {
+	EntryExpires() (time.Time, bool)
+}
+
+type Session struct {
+	Context       context.Context
+	CancelContext context.CancelFunc
+	ContextWg     sync.WaitGroup
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	MaxDataRateRx int
+	MaxDataRateTx int
+	IdleTimeout   time.Duration
+	LastActivity  time.Time
+	LastActSync   time.Time
+	AcctRxBytes   atomic.Int64
+	AcctTxBytes   atomic.Int64
+}
+
+func (this *Session) EntryExpires() (time.Time, bool) {
+	return this.Context.Deadline()
+}
+
+type CredentialsMiss struct {
+	Expires  time.Time
+	Username string
+}
+
+func (this *CredentialsMiss) EntryExpires() (time.Time, bool) {
+
+	if this.Expires.IsZero() {
+		return this.Expires, false
+	}
+
+	return this.Expires, true
+}
+
+var ErrUnauthorized = errors.New("Unauthorized")
