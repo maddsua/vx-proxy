@@ -1,6 +1,10 @@
-# vx-proxy
+<img src="./vx-logo.svg" width="240px" />
 
-A scalable RADIUS-controlled proxy service.
+# A scalable RADIUS-controlled proxy service.
+
+Because v2ray is cool but I want some flexibility. Also just because I can.
+
+Work in progress, more protocols are coming in the future.
 
 ## RADIUS protocol
 
