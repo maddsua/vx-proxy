@@ -37,7 +37,7 @@ type Session struct {
 	CancelContext context.CancelFunc
 	ContextWg     sync.WaitGroup
 	ID            uuid.UUID
-	UserID        uuid.UUID
+	UserID        string
 	MaxDataRateRx int
 	MaxDataRateTx int
 	IdleTimeout   time.Duration

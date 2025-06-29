@@ -23,6 +23,7 @@ import (
 	"github.com/maddsua/layeh-radius/rfc4679"
 	"github.com/maddsua/layeh-radius/rfc5580"
 	"github.com/maddsua/vx-proxy/config"
+	"github.com/maddsua/vx-proxy/utils"
 )
 
 type RadiusControllerOpts struct {
@@ -212,7 +213,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 		slog.String("method", "passwd"),
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
-		slog.String("uid", sess.UserID.String()))
+		slog.String("user", sess.UserID))
 
 	this.storeCache(sessKey, sess)
 	return sess, nil
@@ -340,13 +341,16 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 	sess := Session{
 		ID:           sessUuid,
+		UserID:       auth.Username,
 		LastActivity: time.Now(),
 		LastActSync:  time.Now(),
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
-		if sess.UserID, err = uuid.FromBytes(val); err != nil {
-			return nil, errors.New("invalid radius response: the optional Chargeable-User-Identity is not a valid uuid")
+		if utils.IsText(string(val)) {
+			sess.UserID = string(val)
+		} else if val, err := uuid.FromBytes(val); err == nil {
+			sess.UserID = val.String()
 		}
 	}
 

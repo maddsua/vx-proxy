@@ -91,7 +91,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
 			slog.String("sid", sess.ID.String()),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		wrt.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -103,7 +103,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
 			slog.String("sid", sess.ID.String()),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		return
 	}
 
@@ -119,7 +119,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
 			slog.String("sid", sess.ID.String()),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		wrt.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -130,7 +130,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 		slog.String("client_ip", req.RemoteAddr),
 		slog.String("remote", req.Host),
 		slog.String("sid", sess.ID.String()),
-		slog.String("user", sess.UserID.String()))
+		slog.String("user", sess.UserID))
 
 	proxyHeaders := http.Header{}
 	proxyHeaders.Set("Proxy-Connection", "Keep-Alive")
@@ -140,7 +140,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 		slog.Error("HTTP PROXY: TUNNEL: Failed to start proxy connection",
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		return
 	}
 
@@ -153,7 +153,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 		slog.Error("HTTP PROXY: TUNNEL: Failed to flush remaining http buffer",
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		return
 	} else if buffered > 0 {
 		sess.AcctTxBytes.Add(int64(buffered))
@@ -163,7 +163,7 @@ func (this *Proxy) ServeTunnel(wrt http.ResponseWriter, req *http.Request, sess 
 		slog.Error("HTTP PROXY: TUNNEL: Failed to set pipeline timeout",
 			slog.String("client_ip", req.RemoteAddr),
 			slog.String("remote", req.Host),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 		return
 	}
 

@@ -209,7 +209,7 @@ func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
 		slog.Debug("SOCKS V5: Unsupported command",
 			slog.Int("cmd", int(cmd)),
 			slog.String("client_ip", conn.RemoteAddr().String()),
-			slog.String("user", sess.UserID.String()))
+			slog.String("user", sess.UserID))
 
 		writeError(v5RepErrCmdNotSupported)
 	}
@@ -242,7 +242,7 @@ func (this *Proxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remo
 			slog.String("err", err.Error()),
 			slog.String("client_ip", clientConn.RemoteAddr().String()),
 			slog.String("sid", sess.ID.String()),
-			slog.String("user", sess.UserID.String()),
+			slog.String("user", sess.UserID),
 			slog.String("remote", remoteAddr))
 
 		respond(v5RepErrHostUnreachable, remoteAddr)
@@ -261,7 +261,7 @@ func (this *Proxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remo
 
 	slog.Debug("SOCKS V5: Connected",
 		slog.String("client_ip", clientConn.RemoteAddr().String()),
-		slog.String("user", sess.UserID.String()),
+		slog.String("user", sess.UserID),
 		slog.String("sid", sess.ID.String()),
 		slog.String("remote", remoteAddr))
 
