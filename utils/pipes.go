@@ -11,11 +11,19 @@ import (
 
 // arguments here:
 // ctx - own ctx, signals this half of a pipe when to exit;
-// cancelDuplex - callback function to cancel the other context (when we get EOF and want to stop transferring data);
+// cancelOther - callback function to cancel the other context (when we get EOF and want to stop transferring data);
 // dst - destination connection;
 // src - source connection;
 // acct - traffic accounting callback
-func PipeConnection(ctx context.Context, cancelDuplex context.CancelFunc, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) {
+func PipeConnection(ctx context.Context, cancelOther context.CancelFunc, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) {
+
+	if ctx == nil {
+		panic("context is nil")
+	} else if dst == nil {
+		panic("dst is nil")
+	} else if src == nil {
+		panic("src is nil")
+	}
 
 	var shutdownDuplex = func() {
 		dst.SetReadDeadline(time.Unix(1, 0))
@@ -29,37 +37,19 @@ func PipeConnection(ctx context.Context, cancelDuplex context.CancelFunc, dst ne
 	}
 
 	defer shutdownDuplex()
-	defer cancelDuplex()
 
-	//	branch for non-speed-limited connections
-	if speedCap <= 0 {
-
-		for ctx.Err() == nil {
-
-			bytesSent, err := io.Copy(dst, src)
-			if bytesSent == 0 {
-				break
-			}
-
-			transferAcct.Add(bytesSent)
-
-			if ctx.Err() != nil {
-				break
-			}
-
-			if err != nil {
-				reportBrokenPipe(err)
-				break
-			}
-		}
-
-		return
+	if cancelOther != nil {
+		defer cancelOther()
 	}
 
 	const buffSize = 32 * 1024
 
 	var copyStarted time.Time
-	idealDelay := (time.Second * buffSize) / time.Duration(speedCap)
+	var chunkDelay time.Duration
+
+	if speedCap > 0 {
+		chunkDelay = (time.Second * buffSize) / time.Duration(speedCap)
+	}
 
 	for ctx.Err() == nil {
 
@@ -70,7 +60,9 @@ func PipeConnection(ctx context.Context, cancelDuplex context.CancelFunc, dst ne
 			break
 		}
 
-		transferAcct.Add(bytesSent)
+		if transferAcct != nil {
+			transferAcct.Add(bytesSent)
+		}
 
 		if ctx.Err() != nil || err == io.EOF {
 			break
@@ -81,6 +73,8 @@ func PipeConnection(ctx context.Context, cancelDuplex context.CancelFunc, dst ne
 			break
 		}
 
-		time.Sleep(idealDelay - time.Since(copyStarted))
+		if chunkDelay > 0 {
+			time.Sleep(chunkDelay - time.Since(copyStarted))
+		}
 	}
 }
