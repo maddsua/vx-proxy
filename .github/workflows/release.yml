@@ -98,7 +98,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian-pkg
+          name: vx-proxy-deb
           path: vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
 
   build-vx-tools-debian:
@@ -145,7 +145,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debian-pkg
+          name: vx-proxy-devtools-deb
           path: vx-proxy-devtools-${{ needs.extract-tag.outputs.version }}-amd64.deb
 
   upload-assets:
