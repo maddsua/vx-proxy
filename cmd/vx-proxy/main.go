@@ -23,30 +23,47 @@ import (
 	socksproxy "github.com/maddsua/vx-proxy/socks"
 )
 
+type CliFlags struct {
+	Debug   *bool
+	CfgFile *string
+	LogFmt  *string
+}
+
 func main() {
 
 	godotenv.Load()
 
-	flagDebug := flag.Bool("debug", false, "Show debug logging")
-	flagConfigFile := flag.String("config", "/etc/vx-proxy/vx.cfg.yml", "Set config value path")
-	flagLogFmt := flag.String("logfmt", "", "Log format: json|null")
+	cli := CliFlags{
+		Debug:   flag.Bool("debug", false, "Show debug logging"),
+		CfgFile: flag.String("config", "", "Set config value path"),
+		LogFmt:  flag.String("logfmt", "", "Log format: json|null"),
+	}
 	flag.Parse()
 
-	if env.Get("LOG_FMT").ToLower() == "json" || strings.ToLower(*flagLogFmt) == "json" {
+	if env.Get("LOG_FMT").ToLower() == "json" || strings.ToLower(*cli.LogFmt) == "json" {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	}
 
 	slog.Info("Service vx-proxy starting...")
 
-	if *flagDebug || env.Get("LOG_LEVEL").ToLower() == "debug" {
+	if *cli.Debug || env.Get("LOG_LEVEL").ToLower() == "debug" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		slog.Debug("Enabled")
 	}
 
-	slog.Info("Loading config file",
-		slog.String("from", *flagConfigFile))
+	if *cli.CfgFile == "" {
+		if val := checkConfigLocations(); val != "" {
+			*cli.CfgFile = checkConfigLocations()
+		} else {
+			slog.Error("No config file found")
+			os.Exit(1)
+		}
+	}
 
-	cfg, err := config.LoadConfigFile(*flagConfigFile)
+	slog.Info("Loading config file",
+		slog.String("from", *cli.CfgFile))
+
+	cfg, err := config.LoadConfigFile(*cli.CfgFile)
 	if err != nil {
 		slog.Error("Failed to load config file",
 			slog.String("err", err.Error()))
@@ -192,4 +209,21 @@ func main() {
 		slog.Warn("Service vx-proxy is exiting...")
 		break
 	}
+}
+
+func checkConfigLocations() string {
+
+	locations := []string{
+		"./vx.cfg.yml",
+		"./vx-proxy.yml",
+		"/etc/vx-proxy/vx.cfg.yml",
+	}
+
+	for _, val := range locations {
+		if stat, err := os.Stat(val); err == nil && stat.Mode().IsRegular() {
+			return val
+		}
+	}
+
+	return ""
 }
