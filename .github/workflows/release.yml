@@ -36,11 +36,16 @@ jobs:
         # this issue only shows up in this project and ONLY on github
         run: chown -R root .
 
-      - name: Make dist directory
-        run: mkdir -p build/usr/bin
+      - name: Make dist directories
+        run: |
+          mkdir -p build/usr/bin
+          mkdir -p build/etc/vx-proxy
 
       - name: Build
         run: go build -v -o build/usr/bin/vx-proxy -ldflags "-s -w" ./cmd/vx-proxy
+
+      - name: Copy proxy config file
+        run: cp cmd/vx-proxy/vx-proxy.yml build/etc/vx-proxy/vx-proxy.yml
 
       - name: Create control file
         run: |
@@ -81,7 +86,6 @@ jobs:
           cat << EOF > build/DEBIAN/postinst
           #!/bin/sh
           set -e
-          mkdir -p /etc/vx-proxy
           systemctl daemon-reload
           systemctl enable vx-proxy.service
           systemctl start vx-proxy.service
@@ -115,14 +119,19 @@ jobs:
       - name: Reset fs ownership
         run: chown -R root .
 
-      - name: Make dist directory
-        run: mkdir -p build/usr/bin
+      - name: Make dist directories
+        run: |
+          mkdir -p build/usr/bin
+          mkdir -p build/etc/vx-proxy
 
       - name: Build dac ctl
         run: go build -v -o build/usr/bin/vx-dac-ctl -ldflags "-s -w" ./cmd/vx-dac-ctl
 
       - name: Build staic auth server
         run: go build -v -o build/usr/bin/vx-static-auth -ldflags "-s -w" ./cmd/vx-static-auth
+
+      - name: Copy static auth config file
+        run: cp cmd/vx-static-auth/vx-static-auth.yml build/etc/vx-proxy/vx-static-auth.yml
 
       - name: Create control file
         run: |

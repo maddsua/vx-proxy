@@ -54,9 +54,7 @@ func main() {
 	if *cli.CfgFile == "" {
 
 		loc, has := utils.FindLocation([]string{
-			"./vx.cfg.yml",
 			"./vx-proxy.yml",
-			"/etc/vx-proxy/vx.cfg.yml",
 			"/etc/vx-proxy/vx-proxy.yml",
 		})
 

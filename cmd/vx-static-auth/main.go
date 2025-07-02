@@ -32,10 +32,8 @@ func main() {
 	if *cli.CfgFile == "" {
 
 		loc, has := utils.FindLocation([]string{
-			"./vx.dac.cfg.yml",
-			"./vx-dac.yml",
-			"/etc/vx-proxy/vx.dac.cfg.yml",
-			"/etc/vx-proxy/vx-dac.yml",
+			"./vx-static-auth.yml",
+			"/etc/vx-proxy/vx-static-auth.yml",
 		})
 
 		if !has {
