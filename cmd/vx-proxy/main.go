@@ -52,9 +52,21 @@ func main() {
 	}
 
 	if *cli.CfgFile == "" {
-		if val := checkConfigLocations(); val != "" {
-			*cli.CfgFile = checkConfigLocations()
-		} else {
+
+		locations := []string{
+			"./vx.cfg.yml",
+			"./vx-proxy.yml",
+			"/etc/vx-proxy/vx.cfg.yml",
+		}
+
+		for _, val := range locations {
+			if stat, err := os.Stat(val); err == nil && stat.Mode().IsRegular() {
+				*cli.CfgFile = val
+				break
+			}
+		}
+
+		if *cli.CfgFile == "" {
 			slog.Error("No config file found")
 			os.Exit(1)
 		}
@@ -209,21 +221,4 @@ func main() {
 		slog.Warn("Service vx-proxy is exiting...")
 		break
 	}
-}
-
-func checkConfigLocations() string {
-
-	locations := []string{
-		"./vx.cfg.yml",
-		"./vx-proxy.yml",
-		"/etc/vx-proxy/vx.cfg.yml",
-	}
-
-	for _, val := range locations {
-		if stat, err := os.Stat(val); err == nil && stat.Mode().IsRegular() {
-			return val
-		}
-	}
-
-	return ""
 }
