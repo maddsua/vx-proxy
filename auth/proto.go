@@ -14,6 +14,7 @@ import (
 type Controller interface {
 	ID() string
 	WithPassword(ctx context.Context, auth PasswordProxyAuth) (*Session, error)
+	Close() error
 }
 
 type ProxyUser struct {
@@ -66,3 +67,16 @@ func (this *CredentialsMiss) EntryExpires() (time.Time, bool) {
 }
 
 var ErrUnauthorized = errors.New("Unauthorized")
+
+func SessionIdFromBytes(bytes []byte) uuid.NullUUID {
+
+	if val, err := uuid.FromBytes(bytes); err == nil {
+		return uuid.NullUUID{UUID: val, Valid: true}
+	}
+
+	if val, err := uuid.ParseBytes(bytes); err == nil {
+		return uuid.NullUUID{UUID: val, Valid: true}
+	}
+
+	return uuid.NullUUID{}
+}

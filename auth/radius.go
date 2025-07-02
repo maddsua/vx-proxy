@@ -22,52 +22,54 @@ import (
 	"github.com/maddsua/layeh-radius/rfc4372"
 	"github.com/maddsua/layeh-radius/rfc4679"
 	"github.com/maddsua/layeh-radius/rfc5580"
-	"github.com/maddsua/vx-proxy/config"
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-type RadiusControllerOpts struct {
-	config.RadiusConfig
+type RadiusConfig struct {
+	AuthAddr  string `yaml:"auth_addr"`
+	AcctAddr  string `yaml:"acct_addr"`
+	ListenDAC string `yaml:"listen_dac"`
+	Secret    string `yaml:"secret"`
 }
 
-func NewRadiusController(opts RadiusControllerOpts) (*radiusController, error) {
+func (this *RadiusConfig) Validate() error {
 
-	if opts.AuthAddr == "" {
-		if opts.RemoteAddr != "" {
-			opts.AuthAddr = opts.RemoteAddr
-		} else {
-			return nil, errors.New("invalid opt: AuthAddr is empty")
-		}
+	utils.ExpandEnv(&this.ListenDAC)
+	utils.ExpandEnv(&this.AuthAddr)
+	utils.ExpandEnv(&this.AcctAddr)
+	utils.ExpandEnv(&this.Secret)
+
+	return nil
+}
+
+func NewRadiusController(cfg RadiusConfig) (Controller, error) {
+
+	if cfg.AuthAddr == "" {
+		return nil, errors.New("invalid opt: AuthAddr is empty")
+	} else if cfg.AcctAddr == "" {
+		cfg.AcctAddr = cfg.AuthAddr
 	}
 
-	if opts.AcctAddr == "" {
-		if opts.RemoteAddr != "" {
-			opts.AcctAddr = opts.RemoteAddr
-		} else {
-			return nil, errors.New("invalid opt: AcctAddr is empty")
-		}
-	}
-
-	if opts.Secret == "" {
+	if cfg.Secret == "" {
 		return nil, errors.New("invalid opt: Secret is empty")
 	}
 
-	localAddr := opts.LocalAddr
-	if localAddr == "" {
-		localAddr = ":3799"
+	listenDac := cfg.ListenDAC
+	if listenDac == "" {
+		listenDac = ":3799"
 	}
 
-	slog.Debug("RADIUS protocol enabled",
-		slog.String("auth_addr", opts.AuthAddr),
-		slog.String("acct_addr", opts.AcctAddr),
-		slog.String("local_addr", localAddr))
+	slog.Info("RADIUS auth module enabled",
+		slog.String("auth_addr", cfg.AuthAddr),
+		slog.String("acct_addr", cfg.AcctAddr),
+		slog.String("listen_dac", listenDac))
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	this := &radiusController{
-		authAddr:      opts.AuthAddr,
-		acctAddr:      opts.AcctAddr,
-		secret:        []byte(opts.Secret),
+		authAddr:      cfg.AuthAddr,
+		acctAddr:      cfg.AcctAddr,
+		secret:        []byte(cfg.Secret),
 		refreshTicker: time.NewTicker(10 * time.Second),
 		ctx:           ctx,
 		cancelCtx:     cancel,
@@ -77,7 +79,7 @@ func NewRadiusController(opts RadiusControllerOpts) (*radiusController, error) {
 	this.dacServer = &radius.PacketServer{
 		Handler:      radius.HandlerFunc(this.dacHandler),
 		SecretSource: radius.StaticSecretSource(this.secret),
-		Addr:         localAddr,
+		Addr:         listenDac,
 	}
 
 	dacPacketServer, err := net.ListenPacket("udp", this.dacServer.Addr)
@@ -610,18 +612,18 @@ func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.
 
 func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req *radius.Request) {
 
-	sessID, err := uuid.FromBytes(rfc2866.AcctSessionID_Get(req.Packet))
-	if err != nil {
+	sessID := SessionIdFromBytes(rfc2866.AcctSessionID_Get(req.Packet))
+	if sessID.Valid {
 		slog.Error("RADIUS DAC: DM doesn't contain a valid session id",
 			slog.String("ip", req.RemoteAddr.(*net.UDPAddr).IP.String()))
 		return
 	}
 
-	sess := this.lookupCachedSessionByID(sessID)
+	sess := this.lookupCachedSessionByID(sessID.UUID)
 	if sess == nil {
 
 		slog.Warn("RADIUS DAC: DM session ID not found",
-			slog.String("sid", sessID.String()),
+			slog.String("sid", sessID.UUID.String()),
 			slog.String("dac_addr", req.RemoteAddr.String()))
 
 		resp := req.Response(radius.CodeDisconnectNAK)
@@ -636,7 +638,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 	}
 
 	slog.Info("RADIUS DAC: DM OK",
-		slog.String("sid", sessID.String()),
+		slog.String("sid", sess.ID.String()),
 		slog.String("dac_addr", req.RemoteAddr.String()))
 
 	wrt.Write(req.Response(radius.CodeDisconnectACK))
@@ -644,18 +646,18 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 
 func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radius.Request) {
 
-	sessID, err := uuid.FromBytes(rfc2866.AcctSessionID_Get(req.Packet))
-	if err != nil {
+	sessID := SessionIdFromBytes(rfc2866.AcctSessionID_Get(req.Packet))
+	if sessID.Valid {
 		slog.Error("RADIUS DAC: CoA message doesn't contain a valid session id",
 			slog.String("dac_addr", req.RemoteAddr.(*net.UDPAddr).IP.String()))
 		return
 	}
 
-	sess := this.lookupCachedSessionByID(sessID)
+	sess := this.lookupCachedSessionByID(sessID.UUID)
 	if sess == nil {
 
 		slog.Warn("RADIUS DAC: CoA session ID not found",
-			slog.String("sid", sessID.String()),
+			slog.String("sid", sessID.UUID.String()),
 			slog.String("dac_addr", req.RemoteAddr.String()))
 
 		wrt.Write(req.Response(radius.CodeCoANAK))

@@ -1,7 +1,8 @@
 auth:
   radius:
-    remote_addr: localhost:1812
-    local_addr: :3799
+    auth_addr: localhost:1812
+    acct_addr: localhost:1813
+    listen_dac: :3799
     secret: secret
 services:
   http:

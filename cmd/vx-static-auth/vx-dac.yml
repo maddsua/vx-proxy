@@ -1,0 +1,17 @@
+radius:
+  secret: secret
+users:
+  - name: dungeonmaster
+    pass: superstrongpass123
+    max_rx: 0
+    max_tx: 0
+    proxy_addr: 127.0.0.1
+    proxy_port: 8820
+    session_ttl: 600
+  - name: timmy
+    pass: 123456
+    max_rx: 500000
+    max_tx: 500000
+    proxy_addr: 127.0.0.1
+    proxy_port: 8811
+    session_ttl: 100

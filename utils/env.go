@@ -1,4 +1,4 @@
-package config
+package utils
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func LoadEnvValue(val *string) {
+func ExpandEnv(val *string) {
 
 	if val == nil || *val == "" {
 		return
@@ -18,7 +18,7 @@ func LoadEnvValue(val *string) {
 		return
 	}
 
-	slog.Debug(fmt.Sprintf("Config variable '%s' is loaded from env", key))
+	slog.Debug(fmt.Sprintf("ENV: Expanded '%s'", key))
 
 	*val = strings.TrimSpace(os.Getenv(key))
 }

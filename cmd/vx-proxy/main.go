@@ -15,13 +15,13 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/maddsua/vx-proxy/auth"
-	"github.com/maddsua/vx-proxy/config"
-	"github.com/maddsua/vx-proxy/env"
 	"github.com/maddsua/vx-proxy/utils"
 
 	httproxy "github.com/maddsua/vx-proxy/http"
 	socksproxy "github.com/maddsua/vx-proxy/socks"
 )
+
+//	todo: print remote addresses
 
 type CliFlags struct {
 	Debug   *bool
@@ -40,59 +40,49 @@ func main() {
 	}
 	flag.Parse()
 
-	if env.Get("LOG_FMT").ToLower() == "json" || strings.ToLower(*cli.LogFmt) == "json" {
+	if strings.ToLower(os.Getenv("LOG_FMT")) == "json" || strings.ToLower(*cli.LogFmt) == "json" {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	}
 
 	slog.Info("Service vx-proxy starting...")
 
-	if *cli.Debug || env.Get("LOG_LEVEL").ToLower() == "debug" {
+	if *cli.Debug || strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 		slog.Debug("Enabled")
 	}
 
 	if *cli.CfgFile == "" {
 
-		locations := []string{
+		loc, has := utils.FindLocation([]string{
 			"./vx.cfg.yml",
 			"./vx-proxy.yml",
 			"/etc/vx-proxy/vx.cfg.yml",
-		}
+			"/etc/vx-proxy/vx-proxy.yml",
+		})
 
-		for _, val := range locations {
-			if stat, err := os.Stat(val); err == nil && stat.Mode().IsRegular() {
-				*cli.CfgFile = val
-				break
-			}
-		}
-
-		if *cli.CfgFile == "" {
+		if !has {
 			slog.Error("No config file found")
 			os.Exit(1)
 		}
+
+		cli.CfgFile = &loc
 	}
 
 	slog.Info("Loading config file",
 		slog.String("from", *cli.CfgFile))
 
-	cfg, err := config.LoadConfigFile(*cli.CfgFile)
+	cfg, err := loadConfigFile(*cli.CfgFile)
 	if err != nil {
 		slog.Error("Failed to load config file",
 			slog.String("err", err.Error()))
 		os.Exit(1)
 	}
 
-	var customDnsAddr string
-	if val := env.Get("DNS_SVC_ADDR"); val != "" {
-		customDnsAddr = string(val)
-	} else if cfg.Dns.Server != "" {
-		customDnsAddr = cfg.Dns.Server
-	}
-
 	var customDNS *net.Resolver
-	if customDnsAddr != "" {
 
-		rslv, err := utils.NewCustomResolver(customDnsAddr)
+	var setCustomDns = func(addr string) {
+
+		rslv, err := utils.NewCustomResolver(addr)
 		if err != nil {
 			slog.Error("Failed to enable custom DNS resolver",
 				slog.String("err", err.Error()))
@@ -102,13 +92,16 @@ func main() {
 		customDNS = rslv
 
 		slog.Info("Using a custom DNS resolver",
-			slog.String("addr", customDnsAddr))
+			slog.String("addr", addr))
 	}
 
-	authc, err := auth.NewRadiusController(auth.RadiusControllerOpts{
-		RadiusConfig: cfg.Auth.Radius,
-	})
+	if val := os.Getenv("VX_USE_DNS"); val != "" {
+		setCustomDns(val)
+	} else if cfg.Dns.Server != "" {
+		setCustomDns(cfg.Dns.Server)
+	}
 
+	authc, err := auth.NewRadiusController(cfg.Auth.Radius)
 	if err != nil {
 		slog.Error("Failed to start radius controller",
 			slog.String("err", err.Error()))
@@ -117,15 +110,13 @@ func main() {
 
 	defer authc.Close()
 
-	slog.Info("RADIUS controller enabled")
-
 	errCh := make(chan error, 1)
 	exitCh := make(chan os.Signal, 1)
 	signal.Notify(exitCh, syscall.SIGINT, syscall.SIGTERM)
 
 	if cfg.Services.Http != nil {
 
-		ports, err := config.ParseRange(cfg.Services.Http.PortRange)
+		ports, err := parseRange(cfg.Services.Http.PortRange)
 		if err != nil {
 			slog.Error("Invalid config: Invalid http swarm port range",
 				slog.String("err", err.Error()))
@@ -171,7 +162,7 @@ func main() {
 
 	if cfg.Services.Socks != nil {
 
-		ports, err := config.ParseRange(cfg.Services.Socks.PortRange)
+		ports, err := parseRange(cfg.Services.Socks.PortRange)
 		if err != nil {
 			slog.Error("Invalid config: Invalid socks swarm port range",
 				slog.String("err", err.Error()))
