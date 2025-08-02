@@ -9,13 +9,17 @@ import (
 	"strings"
 
 	"github.com/maddsua/vx-proxy/auth"
+	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
+	"github.com/maddsua/vx-proxy/dns"
+	"github.com/maddsua/vx-proxy/http"
+	"github.com/maddsua/vx-proxy/socks"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Auth     AuthConfig     `yaml:"auth"`
+	Auth     auth.Config    `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
-	Dns      DnsConfig      `yaml:"dns"`
+	Dns      dns.Config     `yaml:"dns"`
 }
 
 func (this *Config) Validate() error {
@@ -27,34 +31,10 @@ func (this *Config) Validate() error {
 	return nil
 }
 
-type AuthConfig struct {
-	Radius auth.RadiusConfig `yaml:"radius"`
-}
-
-func (this *AuthConfig) Validate() error {
-
-	if err := this.Radius.Validate(); err != nil {
-		return fmt.Errorf("radius: %s", err.Error())
-	}
-
-	return nil
-}
-
 type ServicesConfig struct {
-	Http  *HttpServiceConfig  `yaml:"http"`
-	Socks *SocksServiceConfig `yaml:"socks"`
-}
-
-type HttpServiceConfig struct {
-	PortRange string `yaml:"port_range"`
-}
-
-type SocksServiceConfig struct {
-	PortRange string `yaml:"port_range"`
-}
-
-type DnsConfig struct {
-	Server string `yaml:"server"`
+	Http   *http.Config   `yaml:"http"`
+	Socks  *socks.Config  `yaml:"socks"`
+	Status *status.Config `yaml:"status"`
 }
 
 func loadConfigFile(path string) (*Config, error) {

@@ -2,10 +2,12 @@ auth:
   radius:
     auth_addr: localhost:1812
     acct_addr: localhost:1813
-    listen_dac: :3799
+    listen_dac: localhost:3799
     secret: secret
 services:
   http:
     port_range: 8810-8819
   socks:
     port_range: 8820-8825
+  status:
+    listen_addr: localhost:1433

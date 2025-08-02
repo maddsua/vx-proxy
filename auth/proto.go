@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -79,4 +80,17 @@ func SessionIdFromBytes(bytes []byte) uuid.NullUUID {
 	}
 
 	return uuid.NullUUID{}
+}
+
+type Config struct {
+	Radius RadiusConfig `yaml:"radius"`
+}
+
+func (this *Config) Validate() error {
+
+	if err := this.Radius.Validate(); err != nil {
+		return fmt.Errorf("radius: %s", err.Error())
+	}
+
+	return nil
 }

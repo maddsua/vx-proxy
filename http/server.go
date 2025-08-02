@@ -5,6 +5,10 @@ import (
 	"net"
 )
 
+type Config struct {
+	PortRange string `yaml:"port_range"`
+}
+
 type localAddrCtxKey struct{}
 
 func SetContextLocalAddr(parent context.Context, value net.Addr) context.Context {
