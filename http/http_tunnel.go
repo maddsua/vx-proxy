@@ -26,8 +26,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	defer conn.Close()
 
-	clientIP := net.IP(conn.RemoteAddr().(utils.AddrPorter).AddrPort().Addr().AsSlice())
-	localAddr := conn.LocalAddr().(utils.AddrPorter).AddrPort()
+	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	var errorRespond = func(statusCode int, headers http.Header) error {
 
@@ -41,8 +41,10 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		slog.Debug("HTTP tunnel: Failed to set connection deadline",
-			slog.Any("err", err),
-			slog.String("client_ip", clientIP.String()))
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("err", err.Error()))
 		return
 	}
 
@@ -50,11 +52,13 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	if err != nil {
 
 		if err, ok := err.(ProtocolError); ok {
-			errorRespond(err.Code, nil)
+			_ = errorRespond(err.Code, nil)
 		}
 
 		if err != io.EOF {
 			slog.Debug("HTTP tunnel: Client error",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("err", err.Error()))
 		}
@@ -64,51 +68,53 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	switch {
 	case header.Method != http.MethodConnect:
-		errorRespond(http.StatusMethodNotAllowed, nil)
+		_ = errorRespond(http.StatusMethodNotAllowed, nil)
 		return
 
 	case header.Host == "":
-		errorRespond(http.StatusMisdirectedRequest, nil)
+		_ = errorRespond(http.StatusMisdirectedRequest, nil)
 		return
 
 	case header.Auth == nil:
 		headers := http.Header{}
 		headers.Set("Proxy-Authenticate", "Basic")
-		errorRespond(http.StatusProxyAuthRequired, headers)
+		_ = errorRespond(http.StatusProxyAuthRequired, headers)
 		return
 	}
 
-	authProps := auth.PasswordProxyAuth{
+	sess, err := this.Auth.WithPassword(ctx, auth.PasswordProxyAuth{
 		BasicCredentials: *header.Auth,
 		ClientIP:         clientIP,
-		NasAddr:          localAddr.Addr().AsSlice(),
-		NasPort:          int(localAddr.Port()),
-	}
+		NasAddr:          nasIP,
+		NasPort:          nasPort,
+	})
 
-	//	todo: fix logging
-
-	sess, err := this.Auth.WithPassword(ctx, authProps)
 	if err == auth.ErrUnauthorized {
 		slog.Debug("HTTP tunnel: Unauthorized",
-			slog.String("user", authProps.Username),
-			slog.String("remote", authProps.ClientIP.String()),
-			slog.String("nas_addr", localAddr.String()))
-		errorRespond(http.StatusForbidden, nil)
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("username", *sess.UserName))
+		_ = errorRespond(http.StatusForbidden, nil)
 		return
 	} else if err != nil {
 		slog.Error("HTTP tunnel: Auth error",
-			slog.String("err", err.Error()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("username", header.Auth.Username),
-			slog.String("authd_id", this.Auth.ID()))
-		errorRespond(http.StatusInternalServerError, nil)
+			slog.String("username", *sess.UserName),
+			slog.String("authd_id", this.Auth.ID()),
+			slog.String("err", err.Error()))
+		_ = errorRespond(http.StatusInternalServerError, nil)
 		return
 	}
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		slog.Debug("HTTP tunnel: Failed to reset tunnel timeouts",
-			slog.Any("err", err),
-			slog.String("client_ip", clientIP.String()))
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("err", err.Error()))
 		return
 	}
 
@@ -120,19 +126,23 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	dstConn, err := dialer.DialContext(sess.Context, "tcp", header.Host)
 	if err != nil {
 		slog.Debug("HTTP tunnel: Failed to connect to the remote server",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("remote", header.Host),
 			slog.String("err", err.Error()))
-		errorRespond(http.StatusBadGateway, nil)
+		_ = errorRespond(http.StatusBadGateway, nil)
 		return
 	}
 
 	defer dstConn.Close()
 
 	slog.Debug("HTTP tunnel: Connected",
+		slog.String("nas_addr", nasIP.String()),
+		slog.Int("nas_port", nasPort),
 		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
@@ -148,6 +158,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	//	write proxy header
 	if err := beginTunnel(); err != nil {
 		slog.Debug("HTTP tunnel: Client disconnected after initial handshake",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
@@ -165,6 +177,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 		if _, err := conn.Write(header.Trailer); err != nil {
 			slog.Debug("HTTP tunnel: Failed to write trailer",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("client_id", sess.ClientID),
 				slog.String("sid", sess.ID.String()),
@@ -177,6 +191,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		sess.AcctTxBytes.Add(int64(len(header.Trailer)))
 		header.Trailer = nil
 	}
+
+	//	todo: replace with a piper struct
 
 	txCtx, cancelTx := context.WithCancel(sess.Context)
 	rxCtx, cancelRx := context.WithCancel(sess.Context)

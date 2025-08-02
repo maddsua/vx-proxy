@@ -3,29 +3,32 @@ package utils
 import (
 	"errors"
 	"net"
-	"net/netip"
 	"strconv"
 	"strings"
 )
 
-type AddrPorter interface {
-	AddrPort() netip.AddrPort
-}
-
 func GetLocalDialAddrTCP(addr net.Addr) *net.TCPAddr {
 
-	tcpAddr, ok := addr.(*net.TCPAddr)
-	if !ok {
-		return nil
+	if addr, ok := addr.(*net.TCPAddr); ok {
+		if !addr.IP.IsLoopback() {
+			return &net.TCPAddr{IP: addr.IP}
+		}
 	}
 
-	if tcpAddr.IP.IsLoopback() {
-		return nil
+	return nil
+}
+
+func GetAddrPort(addr net.Addr) (net.IP, int, bool) {
+
+	if addr, ok := addr.(*net.TCPAddr); ok {
+		return addr.IP, addr.Port, true
 	}
 
-	return &net.TCPAddr{
-		IP: tcpAddr.IP,
+	if addr, ok := addr.(*net.UDPAddr); ok {
+		return addr.IP, addr.Port, true
 	}
+
+	return nil, 0, false
 }
 
 type Range struct {

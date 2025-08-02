@@ -13,8 +13,6 @@ import (
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-//	todo: update logging
-
 type socksV5Authenticator interface {
 	Authorize(ctx context.Context, conn net.Conn) (*auth.Session, *auth.BasicCredentials, error)
 }
@@ -42,8 +40,8 @@ type socksV5Proxy struct {
 
 func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
-	clientIP := net.IP(conn.RemoteAddr().(utils.AddrPorter).AddrPort().Addr().AsSlice())
-	localAddr := conn.LocalAddr().(utils.AddrPorter).AddrPort()
+	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	var sess *auth.Session
 	var creds *auth.BasicCredentials
@@ -56,7 +54,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	methods, err := readsocksV5AuthMethods(conn)
 	if err != nil {
 		slog.Debug("SOCKSv5: Handshake error",
-			slog.String("nas_addr", localAddr.String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
 		writeReply(socksV5ErrGeneric)
@@ -74,8 +73,10 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 			if err := writeAuthMethod(method); err != nil {
 				slog.Debug("SOCKSv5: Protocol error",
-					slog.String("nas_addr", localAddr.String()),
-					slog.String("client_ip", clientIP.String()))
+					slog.String("nas_addr", nasIP.String()),
+					slog.Int("nas_port", nasPort),
+					slog.String("client_ip", clientIP.String()),
+					slog.String("err", err.Error()))
 				return
 			}
 
@@ -83,12 +84,14 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 				if err == auth.ErrUnauthorized {
 					slog.Debug("SOCKSv5: Password auth: Unauthorized",
-						slog.String("nas_addr", localAddr.String()),
+						slog.String("nas_addr", nasIP.String()),
+						slog.Int("nas_port", nasPort),
 						slog.String("client_ip", clientIP.String()),
 						slog.String("username", creds.Username))
 				} else {
 					slog.Error("SOCKSv5: Password auth failed",
-						slog.String("nas_addr", localAddr.String()),
+						slog.String("nas_addr", nasIP.String()),
+						slog.Int("nas_port", nasPort),
 						slog.String("client_ip", clientIP.String()),
 						slog.String("err", err.Error()))
 				}
@@ -102,7 +105,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	if sess == nil {
 		slog.Debug("SOCKSv5: No acceptable auth methods",
-			slog.String("nas_addr", localAddr.String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()))
 		_ = writeAuthMethod(socksV5AuthMethodUnacceptable)
 		return
@@ -111,7 +115,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	cmd, err := readSocksV5Cmd(conn)
 	if err != nil {
 		slog.Debug("SOCKSv5: Command error",
-			slog.String("nas_addr", localAddr.String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
 		_ = writeReply(socksV5ErrGeneric)
@@ -130,8 +135,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 
-	clientIP := net.IP(conn.RemoteAddr().(utils.AddrPorter).AddrPort().Addr().AsSlice())
-	localAddr := conn.LocalAddr().(utils.AddrPorter).AddrPort()
+	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	var writeReply = func(reply socksV5Reply, addr socksV5Addr) error {
 		addrBuff, _ := addr.MarshallBinary()
@@ -139,15 +144,17 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		return err
 	}
 
-	addr, err := readSocksV5Addr(conn)
+	dstAddr, err := readSocksV5Addr(conn)
 	if err != nil {
 		slog.Debug("SOCKSv5: Connect: Failed to read remote addr",
-			slog.String("nas_addr", localAddr.String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("err", err.Error()))
-		_ = writeReply(socksV5ErrGeneric, addr)
+		_ = writeReply(socksV5ErrGeneric, dstAddr)
 		return
 	}
 
@@ -156,18 +163,20 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		Resolver:  this.Dns,
 	}
 
-	dstConn, err := dialer.DialContext(sess.Context, "tcp", string(addr))
+	dstConn, err := dialer.DialContext(sess.Context, "tcp", string(dstAddr))
 	if err != nil {
 
 		slog.Debug("SOCKSv5: Connect: Unable to dial destination",
-			slog.String("client_ip", conn.RemoteAddr().String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", string(addr)),
+			slog.String("remote", string(dstAddr)),
 			slog.String("err", err.Error()))
 
-		_ = writeReply(socksV5ErrHostUnreachable, addr)
+		_ = writeReply(socksV5ErrHostUnreachable, dstAddr)
 		return
 	}
 
@@ -175,7 +184,9 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 
 	if err := writeReply(socksV5ReplOk, socksV5Addr(dstConn.LocalAddr().String())); err != nil {
 		slog.Debug("SOCKSv5: Connect: Terminated",
-			slog.String("client_ip", conn.RemoteAddr().String()),
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
@@ -184,11 +195,13 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 	}
 
 	slog.Debug("SOCKSv5: Connected",
-		slog.String("client_ip", conn.RemoteAddr().String()),
+		slog.String("nas_addr", nasIP.String()),
+		slog.Int("nas_port", nasPort),
+		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
 		slog.String("username", *sess.UserName),
-		slog.String("remote", string(addr)))
+		slog.String("remote", string(dstAddr)))
 
 	// add to a wait group to make sure session-stops account the full amount of traffix
 	sess.ContextWg.Add(1)
@@ -428,14 +441,14 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 		return nil, nil, fmt.Errorf("unable to parse credentials")
 	}
 
-	remoteAddr := conn.RemoteAddr().(utils.AddrPorter).AddrPort()
-	localAddr := conn.LocalAddr().(utils.AddrPorter).AddrPort()
+	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	sess, err := this.Controller.WithPassword(ctx, auth.PasswordProxyAuth{
 		BasicCredentials: *creds,
-		ClientIP:         remoteAddr.Addr().AsSlice(),
-		NasAddr:          localAddr.Addr().AsSlice(),
-		NasPort:          int(localAddr.Port()),
+		ClientIP:         clientIP,
+		NasAddr:          nasIP,
+		NasPort:          nasPort,
 	})
 
 	status := socksV5PasswordAuthOk
