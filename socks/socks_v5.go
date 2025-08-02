@@ -47,6 +47,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	var creds *auth.BasicCredentials
 
 	var writeReply = func(reply socksV5Reply) error {
+		//	note: not writing the address fields here as they're simply missing;
+		//	possibly needs to be fixed in the future but idk atm
 		_, err := conn.Write([]byte{socksProtoVersion5, byte(reply), socksProtoReserved})
 		return err
 	}
