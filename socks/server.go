@@ -42,9 +42,7 @@ func (this *SocksServer) ListenAndServe() error {
 		return fmt.Errorf("invalid port range: '%v'", this.Config.PortRange)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	this.ctx = ctx
-	this.cancelCtx = cancel
+	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
 
 	errChan := make(chan error, 1)
 	defer close(errChan)
@@ -106,7 +104,7 @@ func (this *SocksServer) ListenAndServe() error {
 	case err := <-errChan:
 		this.shutdown()
 		return err
-	case <-ctx.Done():
+	case <-this.ctx.Done():
 		return nil
 	}
 }
@@ -122,9 +120,17 @@ func (this *SocksServer) shutdown() {
 	}
 
 	this.wg.Wait()
+
+	this.ctx = nil
+	this.cancelCtx = nil
 }
 
 func (this *SocksServer) Close() error {
+
+	if this.ctx == nil {
+		return nil
+	}
+
 	this.shutdown()
 	return nil
 }
