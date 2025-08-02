@@ -220,8 +220,8 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 
 	//	let the data flow!
 	piper := utils.ConnectionPiper{
-		Rx: dstConn,
-		Tx: conn,
+		RemoteConn: dstConn,
+		ClientConn: conn,
 
 		TotalCounterRx: &sess.AcctRxBytes,
 		TotalCounterTx: &sess.AcctTxBytes,

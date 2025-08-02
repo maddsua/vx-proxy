@@ -192,8 +192,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	//	let the data flow!
 	piper := utils.ConnectionPiper{
-		Rx: dstConn,
-		Tx: conn,
+		RemoteConn: dstConn,
+		ClientConn: conn,
 
 		TotalCounterRx: &sess.AcctRxBytes,
 		TotalCounterTx: &sess.AcctTxBytes,

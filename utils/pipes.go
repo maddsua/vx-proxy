@@ -17,8 +17,8 @@ import (
 //	|  B ---> A  |
 //	--------------
 type ConnectionPiper struct {
-	Rx net.Conn
-	Tx net.Conn
+	RemoteConn net.Conn
+	ClientConn net.Conn
 
 	TotalCounterRx *atomic.Int64
 	TotalCounterTx *atomic.Int64
@@ -39,12 +39,12 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(txCtx, this.Rx, this.Tx, this.SpeedCapTx, this.TotalCounterTx)
+		doneCh <- PipeConnection(txCtx, this.RemoteConn, this.ClientConn, this.SpeedCapTx, this.TotalCounterTx)
 	}()
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(rxCtx, this.Tx, this.Rx, this.SpeedCapRx, this.TotalCounterRx)
+		doneCh <- PipeConnection(rxCtx, this.ClientConn, this.RemoteConn, this.SpeedCapRx, this.TotalCounterRx)
 	}()
 
 	err := <-doneCh
@@ -52,8 +52,8 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 	cancelRx()
 	cancelTx()
 
-	_ = this.Rx.SetReadDeadline(time.Unix(1, 0))
-	_ = this.Tx.SetReadDeadline(time.Unix(1, 0))
+	_ = this.RemoteConn.SetReadDeadline(time.Unix(1, 0))
+	_ = this.ClientConn.SetReadDeadline(time.Unix(1, 0))
 
 	wg.Wait()
 
