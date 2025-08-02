@@ -24,8 +24,6 @@ type TunnelProxy struct {
 
 func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
-	defer conn.Close()
-
 	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
