@@ -11,7 +11,9 @@ func GetReverseDialAddrTcp(conn net.Conn) *net.TCPAddr {
 
 	if conn, ok := conn.(*net.TCPConn); ok {
 		if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
-			return &net.TCPAddr{IP: addr.IP}
+			if !addr.IP.IsLoopback() {
+				return &net.TCPAddr{IP: addr.IP}
+			}
 		}
 	}
 
