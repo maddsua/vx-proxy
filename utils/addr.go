@@ -3,9 +3,14 @@ package utils
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 )
+
+type AddrPorter interface {
+	AddrPort() netip.AddrPort
+}
 
 func GetLocalDialAddrTCP(addr net.Addr) *net.TCPAddr {
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/netip"
 	"sync"
 
 	"github.com/maddsua/vx-proxy/auth"
@@ -121,8 +120,4 @@ func (this *HttpServer) Close() error {
 
 	this.shutdown()
 	return nil
-}
-
-type AddrPorter interface {
-	AddrPort() netip.AddrPort
 }

@@ -19,13 +19,13 @@ type Controller interface {
 	Close() error
 }
 
-type ProxyUser struct {
+type BasicCredentials struct {
 	Username string
 	Password string
 }
 
 type PasswordProxyAuth struct {
-	ProxyUser
+	BasicCredentials
 	ClientIP net.IP
 	NasAddr  net.IP
 	NasPort  int

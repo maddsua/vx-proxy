@@ -26,8 +26,8 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	defer conn.Close()
 
-	clientIP := net.IP(conn.RemoteAddr().(AddrPorter).AddrPort().Addr().AsSlice())
-	localAddr := conn.LocalAddr().(AddrPorter)
+	clientIP := net.IP(conn.RemoteAddr().(utils.AddrPorter).AddrPort().Addr().AsSlice())
+	localAddr := conn.LocalAddr().(utils.AddrPorter).AddrPort()
 
 	var errorRespond = func(statusCode int, headers http.Header) error {
 
@@ -79,19 +79,20 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	authProps := auth.PasswordProxyAuth{
-		ProxyUser: *header.Auth,
-		ClientIP:  clientIP,
-		NasAddr:   localAddr.AddrPort().Addr().AsSlice(),
-		NasPort:   int(localAddr.AddrPort().Port()),
+		BasicCredentials: *header.Auth,
+		ClientIP:         clientIP,
+		NasAddr:          localAddr.Addr().AsSlice(),
+		NasPort:          int(localAddr.Port()),
 	}
+
+	//	todo: fix logging
 
 	sess, err := this.Auth.WithPassword(ctx, authProps)
 	if err == auth.ErrUnauthorized {
 		slog.Debug("HTTP tunnel: Unauthorized",
 			slog.String("user", authProps.Username),
 			slog.String("remote", authProps.ClientIP.String()),
-			slog.String("nas_addr", authProps.NasAddr.String()),
-			slog.Int("nas_port", authProps.NasPort))
+			slog.String("nas_addr", localAddr.String()))
 		errorRespond(http.StatusForbidden, nil)
 		return
 	} else if err != nil {
@@ -191,7 +192,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 type TunnelHeader struct {
 	Method  string
-	Auth    *auth.ProxyUser
+	Auth    *auth.BasicCredentials
 	Host    string
 	Trailer []byte
 }
@@ -224,7 +225,7 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 			if strings.ToLower(strings.TrimSpace(schema)) == "basic" {
 				if userauth, err := base64.StdEncoding.DecodeString(strings.TrimSpace(token)); err == nil {
 					if username, password, has := strings.Cut(string(userauth), ":"); has {
-						header.Auth = &auth.ProxyUser{Username: username, Password: password}
+						header.Auth = &auth.BasicCredentials{Username: username, Password: password}
 					}
 				}
 			}
