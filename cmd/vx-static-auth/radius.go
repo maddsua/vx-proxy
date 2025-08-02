@@ -49,7 +49,6 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 	if user == nil {
 		w.Write(r.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: Invalid password",
-			slog.String("nas_addr", r.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
