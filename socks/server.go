@@ -49,7 +49,7 @@ func (this *SocksServer) ListenAndServe() error {
 	errChan := make(chan error, 1)
 	defer close(errChan)
 
-	for port := portRange.Begin; port < portRange.End; port++ {
+	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
 
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
