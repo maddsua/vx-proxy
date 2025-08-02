@@ -2,71 +2,119 @@ package socks
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
 	"net"
+	"sync"
+
+	"github.com/maddsua/vx-proxy/auth"
+	"github.com/maddsua/vx-proxy/utils"
 )
 
 type Config struct {
 	PortRange string `yaml:"port_range"`
 }
 
-type SocksHandler interface {
-	HandleConnection(ctx context.Context, conn net.Conn)
-}
-
 type SocksServer struct {
-	Handler SocksHandler
+	Config
+
+	Auth auth.Controller
+	Dns  *net.Resolver
+
+	pool []net.Listener
+	wg   sync.WaitGroup
+
+	handler *Proxy
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 }
 
-func (this *SocksServer) Serve(listener net.Listener) error {
+func (this *SocksServer) ListenAndServe() error {
 
-	if listener == nil {
-		return errors.New("listener is nil")
-	} else if this.Handler == nil {
-		return errors.New("handler is nil")
+	this.handler = &Proxy{
+		Auth: this.Auth,
+		Dns:  this.Dns,
+	}
+
+	portRange, err := utils.ParseRange(this.Config.PortRange)
+	if err != nil {
+		return fmt.Errorf("invalid port range: '%v'", this.Config.PortRange)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	this.ctx = ctx
 	this.cancelCtx = cancel
 
-	for this.ctx.Err() == nil {
+	errChan := make(chan error, 1)
+	defer close(errChan)
 
-		next, err := listener.Accept()
+	for port := portRange.Begin; port < portRange.End; port++ {
+
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
-
-			if this.ctx.Err() != nil {
-				return nil
-			}
-
-			slog.Debug("socks server: failed to accept",
-				slog.String("err", err.Error()))
-
-			continue
+			//	todo: do a cleanup here
+			return err
 		}
 
-		go func(next net.Conn) {
+		this.pool = append(this.pool, listener)
+		this.wg.Add(1)
+
+		go func() {
+
+			defer this.wg.Done()
+			defer listener.Close()
 
 			defer func() {
 				if err := recover(); err != nil {
-					slog.Error("socks server: handler panic recovered",
-						slog.Any("err", err))
+					errChan <- fmt.Errorf("handler for '%s' panicked: %v", listener.Addr().String(), err)
 				}
 			}()
 
-			this.Handler.HandleConnection(this.ctx, next)
+			for this.ctx.Err() == nil {
 
-		}(next)
+				next, err := listener.Accept()
+				if err != nil {
+
+					if this.ctx.Err() != nil {
+						return
+					}
+
+					slog.Debug("socks server: failed to accept",
+						slog.String("err", err.Error()))
+
+					continue
+				}
+
+				go func(next net.Conn) {
+
+					defer func() {
+						if err := recover(); err != nil {
+							slog.Error("socks server: handler panic recovered",
+								slog.Any("err", err))
+						}
+					}()
+
+					this.handler.HandleConnection(this.ctx, next)
+
+				}(next)
+			}
+		}()
 	}
 
-	return nil
+	select {
+	case err := <-errChan:
+		//	todo: do a cleanup
+		return err
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 func (this *SocksServer) Close() error {
+
+	//	todo: do cleanup
+
 	this.cancelCtx()
 	return nil
 }
