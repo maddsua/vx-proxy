@@ -53,7 +53,7 @@ func (this *SocksServer) ListenAndServe() error {
 
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
-			//	todo: do a cleanup here
+			this.shutdown()
 			return err
 		}
 
@@ -104,17 +104,27 @@ func (this *SocksServer) ListenAndServe() error {
 
 	select {
 	case err := <-errChan:
-		//	todo: do a cleanup
+		this.shutdown()
 		return err
 	case <-ctx.Done():
 		return nil
 	}
 }
 
-func (this *SocksServer) Close() error {
-
-	//	todo: do cleanup
+func (this *SocksServer) shutdown() {
 
 	this.cancelCtx()
+
+	for _, listener := range this.pool {
+		if listener != nil {
+			listener.Close()
+		}
+	}
+
+	this.wg.Wait()
+}
+
+func (this *SocksServer) Close() error {
+	this.shutdown()
 	return nil
 }
