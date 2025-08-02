@@ -445,19 +445,18 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 			return nil, err
 		}
 
-		plen := unamePlus[int(ulen)]
-		if plen == 0 {
-			return nil, fmt.Errorf("password length is zero")
-		}
-
-		pass, err := utils.ReadBuffN(reader, int(plen))
-		if err != nil {
-			return nil, err
+		var password string
+		if plen := unamePlus[int(ulen)]; plen > 0 {
+			if val, err := utils.ReadBuffN(reader, int(plen)); err != nil {
+				return nil, err
+			} else {
+				password = string(val)
+			}
 		}
 
 		return &auth.BasicCredentials{
 			Username: string(unamePlus[:int(ulen)]),
-			Password: string(pass),
+			Password: password,
 		}, nil
 	}
 
