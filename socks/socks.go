@@ -10,24 +10,14 @@ import (
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-type Proxy struct {
+type SocksProxy struct {
 	Auth auth.Controller
 	Dns  *net.Resolver
 }
 
-func (this *Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
+func (this *SocksProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
-	defer func() {
-		if rerr := recover(); rerr != nil {
-			slog.Error("SOCKS: Panic recovered",
-				slog.Any("err", rerr),
-				slog.String("client_ip", conn.RemoteAddr().String()))
-		}
-	}()
-
-	defer conn.Close()
-
-	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		slog.Debug("SOCKS: Failed to set connection deadline",
 			slog.Any("err", err),
 			slog.String("client_ip", conn.RemoteAddr().String()))
@@ -55,7 +45,7 @@ func (this *Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 }
 
 // As per: https://datatracker.ietf.org/doc/html/rfc1928
-func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
+func (this *SocksProxy) handleV5(ctx context.Context, conn net.Conn) {
 
 	var writeError = func(rep byte) error {
 		_, err := conn.Write([]byte{v5Ver, rep, v5ByteReserved})
@@ -142,36 +132,36 @@ func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
 	if err == auth.ErrUnauthorized {
 
 		slog.Debug("SOCKS V5: Unauthorized",
-			slog.String("username", authProps.Username),
 			slog.String("nas_addr", authProps.NasAddr.String()),
-			slog.String("client_ip", authProps.ClientIP.String()))
+			slog.String("client_ip", authProps.ClientIP.String()),
+			slog.String("username", authProps.Username))
 
 		writeAuthStatus(false)
 		return
 
 	} else if err != nil {
 		slog.Error("SOCKS V5: Auth error",
-			slog.String("err", err.Error()),
 			slog.String("client_ip", conn.RemoteAddr().String()),
-			slog.String("authd_id", this.Auth.ID()))
+			slog.String("authd_id", this.Auth.ID()),
+			slog.String("err", err.Error()))
 		writeError(v5RepErrGeneric)
 		return
 	}
 
 	if err := writeAuthStatus(true); err != nil {
 		slog.Debug("SOCKS V5: Handshake terminated",
-			slog.String("err", err.Error()),
 			slog.String("client_ip", conn.RemoteAddr().String()),
-			slog.String("authd_id", this.Auth.ID()))
+			slog.String("authd_id", this.Auth.ID()),
+			slog.String("err", err.Error()))
 		return
 	}
 
 	var cmd uint8
 	if cmdBuff, err := utils.ReadBuffN(conn, 3); err != nil {
 		slog.Debug("SOCKS V5: Handshake error: Failed to read command",
-			slog.String("err", err.Error()),
 			slog.String("client_ip", conn.RemoteAddr().String()),
-			slog.String("authd_id", this.Auth.ID()))
+			slog.String("authd_id", this.Auth.ID()),
+			slog.String("err", err.Error()))
 		return
 	} else if cmdBuff[0] != v5Ver {
 		slog.Debug("SOCKS V5: Handshake error: Invalid command version",
@@ -189,6 +179,13 @@ func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
 		cmd = cmdBuff[1]
 	}
 
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		slog.Debug("SOCKS V5: Failed to reset tunnel timeouts",
+			slog.String("client_ip", conn.RemoteAddr().String()),
+			slog.String("err", err.Error()))
+		return
+	}
+
 	switch cmd {
 
 	case v5CmdConnect:
@@ -196,9 +193,11 @@ func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
 		addr, err := v5ReadAddr(conn)
 		if err != nil {
 			slog.Debug("SOCKS V5: Handshake error: Failed to read 'connect' cmd remote addr",
-				slog.String("err", err.Error()),
+				slog.String("nas_addr", authProps.NasAddr.String()),
 				slog.String("client_ip", conn.RemoteAddr().String()),
-				slog.String("authd_id", this.Auth.ID()))
+				slog.String("client_id", sess.ClientID),
+				slog.String("username", *sess.UserName),
+				slog.String("err", err.Error()))
 			return
 		}
 
@@ -207,27 +206,21 @@ func (this *Proxy) handleV5(ctx context.Context, conn net.Conn) {
 	default:
 
 		slog.Debug("SOCKS V5: Unsupported command",
-			slog.Int("cmd", int(cmd)),
+			slog.String("nas_addr", authProps.NasAddr.String()),
 			slog.String("client_ip", conn.RemoteAddr().String()),
-			slog.String("user", sess.UserID))
+			slog.String("client_id", sess.ClientID),
+			slog.String("username", *sess.UserName),
+			slog.Int("cmd", int(cmd)))
 
 		writeError(v5RepErrCmdNotSupported)
 	}
 }
 
-func (this *Proxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remoteAddr string) {
+func (this *SocksProxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remoteAddr string) {
 
 	var respond = func(rep byte, addr string) error {
 		_, err := clientConn.Write(append([]byte{v5Ver, rep, v5ByteReserved}, v5PackAddr(addr)...))
 		return err
-	}
-
-	if err := clientConn.SetDeadline(time.Time{}); err != nil {
-		slog.Debug("SOCKS V5: Failed to reset tunnel timeouts",
-			slog.String("err", err.Error()),
-			slog.String("client_ip", clientConn.RemoteAddr().String()),
-			slog.String("authd_id", this.Auth.ID()))
-		return
 	}
 
 	dialer := net.Dialer{
@@ -239,11 +232,12 @@ func (this *Proxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remo
 	if err != nil {
 
 		slog.Debug("SOCKS V5: Unable to dial destination",
-			slog.String("err", err.Error()),
 			slog.String("client_ip", clientConn.RemoteAddr().String()),
+			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
-			slog.String("user", sess.UserID),
-			slog.String("remote", remoteAddr))
+			slog.String("username", *sess.UserName),
+			slog.String("remote", remoteAddr),
+			slog.String("err", err.Error()))
 
 		respond(v5RepErrHostUnreachable, remoteAddr)
 		return
@@ -253,16 +247,19 @@ func (this *Proxy) handleV5Connect(clientConn net.Conn, sess *auth.Session, remo
 
 	if err := respond(v5RepOk, remoteConn.LocalAddr().String()); err != nil {
 		slog.Debug("SOCKS V5: Connect terminated",
-			slog.String("err", err.Error()),
 			slog.String("client_ip", clientConn.RemoteAddr().String()),
-			slog.String("authd_id", this.Auth.ID()))
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("err", err.Error()))
 		return
 	}
 
 	slog.Debug("SOCKS V5: Connected",
 		slog.String("client_ip", clientConn.RemoteAddr().String()),
-		slog.String("user", sess.UserID),
+		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
+		slog.String("username", *sess.UserName),
 		slog.String("remote", remoteAddr))
 
 	// add to a wait group to make sure session-stops account the full amount of traffix

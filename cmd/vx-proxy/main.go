@@ -1,13 +1,10 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,15 +13,12 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/maddsua/vx-proxy/auth"
 	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
-	"github.com/maddsua/vx-proxy/cmd/vx-proxy/swarm"
 	"github.com/maddsua/vx-proxy/dns"
 	"github.com/maddsua/vx-proxy/socks"
 	"github.com/maddsua/vx-proxy/utils"
 
 	httproxy "github.com/maddsua/vx-proxy/http"
 )
-
-//	todo: print remote addresses
 
 type CliFlags struct {
 	Debug   *bool
@@ -117,48 +111,22 @@ func main() {
 
 	if cfg.Services.Http != nil {
 
-		ports, err := parseRange(cfg.Services.Http.PortRange)
-		if err != nil {
-			slog.Error("Invalid config: Invalid http swarm port range",
-				slog.String("err", err.Error()))
-			os.Exit(1)
-		}
-
-		slog.Info(fmt.Sprintf("Summoning http swarm at [%d...%d]/tcp", ports[0], ports[1]))
-
-		swarm := &swarm.Server{
-			Ports: swarm.UnwarpPortRange(ports),
-			Handler: func(ctx context.Context, listener net.Listener) {
-
-				portSrv := http.Server{
-					Handler: &httproxy.Proxy{
-						Auth: authc,
-						Dns:  customDNS,
-					},
-					ConnContext: func(connCtx context.Context, conn net.Conn) context.Context {
-						return httproxy.SetContextLocalAddr(connCtx, conn.LocalAddr())
-					},
-				}
-
-				defer portSrv.Close()
-
-				go func() {
-					if err := portSrv.Serve(listener); err != nil && ctx.Err() == nil {
-						errCh <- fmt.Errorf("http swarm serve task %s error: %s", listener.Addr().String(), err.Error())
-					}
-				}()
-
-				<-ctx.Done()
-			},
+		svcs := httproxy.HttpServer{
+			Config: *cfg.Services.Http,
+			Auth:   authc,
+			Dns:    customDNS,
 		}
 
 		go func() {
-			if err := swarm.ListenAndServe(); err != nil {
-				errCh <- errors.New("http swarm error: " + err.Error())
+			if err := svcs.ListenAndServe(); err != nil {
+				errCh <- errors.New("http service error: " + err.Error())
 			}
 		}()
 
-		defer swarm.Close()
+		defer svcs.Close()
+
+		slog.Info("Starting http service",
+			slog.String("range", cfg.Services.Http.PortRange))
 	}
 
 	if cfg.Services.Socks != nil {
@@ -171,7 +139,7 @@ func main() {
 
 		go func() {
 			if err := svcs.ListenAndServe(); err != nil {
-				errCh <- errors.New("socks swarm error: " + err.Error())
+				errCh <- errors.New("socks service error: " + err.Error())
 			}
 		}()
 

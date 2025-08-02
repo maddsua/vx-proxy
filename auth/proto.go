@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,7 +40,8 @@ type Session struct {
 	CancelContext context.CancelFunc
 	ContextWg     sync.WaitGroup
 	ID            uuid.UUID
-	UserID        string
+	UserName      *string
+	ClientID      string
 	MaxDataRateRx int
 	MaxDataRateTx int
 	IdleTimeout   time.Duration
@@ -93,4 +95,34 @@ func (this *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func ParseTextID(val string) (string, error) {
+
+	if val = strings.TrimSpace(val); val == "" {
+		return "", errors.New("empty value")
+	}
+
+	for _, char := range val {
+
+		switch char {
+		case '-', '_':
+			continue
+		}
+
+		switch {
+
+		case char >= '0' && char <= '9':
+			continue
+		case char >= 'A' && char <= 'Z':
+			continue
+		case char >= 'a' && char <= 'z':
+			continue
+
+		default:
+			return "", errors.New("unexpected character")
+		}
+	}
+
+	return val, nil
 }

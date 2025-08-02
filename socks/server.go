@@ -24,7 +24,7 @@ type SocksServer struct {
 	pool []net.Listener
 	wg   sync.WaitGroup
 
-	handler *Proxy
+	handler *SocksProxy
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
@@ -32,7 +32,7 @@ type SocksServer struct {
 
 func (this *SocksServer) ListenAndServe() error {
 
-	this.handler = &Proxy{
+	this.handler = &SocksProxy{
 		Auth: this.Auth,
 		Dns:  this.Dns,
 	}
@@ -43,9 +43,6 @@ func (this *SocksServer) ListenAndServe() error {
 	}
 
 	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
-
-	errChan := make(chan error, 1)
-	defer close(errChan)
 
 	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
 
@@ -63,12 +60,6 @@ func (this *SocksServer) ListenAndServe() error {
 			defer this.wg.Done()
 			defer listener.Close()
 
-			defer func() {
-				if err := recover(); err != nil {
-					errChan <- fmt.Errorf("handler for '%s' panicked: %v", listener.Addr().String(), err)
-				}
-			}()
-
 			for this.ctx.Err() == nil {
 
 				next, err := listener.Accept()
@@ -84,7 +75,7 @@ func (this *SocksServer) ListenAndServe() error {
 					continue
 				}
 
-				go func(next net.Conn) {
+				go func(conn net.Conn) {
 
 					defer func() {
 						if err := recover(); err != nil {
@@ -93,20 +84,17 @@ func (this *SocksServer) ListenAndServe() error {
 						}
 					}()
 
-					this.handler.HandleConnection(this.ctx, next)
+					defer conn.Close()
+
+					this.handler.HandleConnection(this.ctx, conn)
 
 				}(next)
 			}
 		}()
 	}
 
-	select {
-	case err := <-errChan:
-		this.shutdown()
-		return err
-	case <-this.ctx.Done():
-		return nil
-	}
+	<-this.ctx.Done()
+	return nil
 }
 
 func (this *SocksServer) shutdown() {
