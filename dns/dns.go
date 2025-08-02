@@ -1,4 +1,4 @@
-package utils
+package dns
 
 import (
 	"context"
@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
-func NewCustomResolver(dnsSrvAddr string) (*net.Resolver, error) {
+type Config struct {
+	Server string `yaml:"server"`
+}
+
+func NewResolver(dnsSrvAddr string) (*net.Resolver, error) {
 
 	if _, _, err := net.SplitHostPort(dnsSrvAddr); err != nil {
 		return nil, errors.New("custom DNS server address invalid: " + err.Error())

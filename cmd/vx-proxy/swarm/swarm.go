@@ -1,4 +1,4 @@
-package utils
+package swarm
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-type SwarmServer struct {
+type Server struct {
 	Network string
 	Host    string
 	Handler ConnectionHandler
@@ -23,7 +23,7 @@ type SwarmServer struct {
 
 type ConnectionHandler func(ctx context.Context, listener net.Listener)
 
-func (this *SwarmServer) Serve() error {
+func (this *Server) ListenAndServe() error {
 
 	if this.Handler == nil {
 		return errors.New("handler is nil")
@@ -76,7 +76,7 @@ func (this *SwarmServer) Serve() error {
 	}
 }
 
-func (this *SwarmServer) Close() error {
+func (this *Server) Close() error {
 
 	if this.ctx == nil {
 		return errors.New("swarm context is nil")

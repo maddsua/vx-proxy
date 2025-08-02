@@ -15,6 +15,9 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/maddsua/vx-proxy/auth"
+	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
+	"github.com/maddsua/vx-proxy/cmd/vx-proxy/swarm"
+	"github.com/maddsua/vx-proxy/dns"
 	"github.com/maddsua/vx-proxy/utils"
 
 	httproxy "github.com/maddsua/vx-proxy/http"
@@ -80,7 +83,7 @@ func main() {
 
 	var setCustomDns = func(addr string) {
 
-		rslv, err := utils.NewCustomResolver(addr)
+		rslv, err := dns.NewResolver(addr)
 		if err != nil {
 			slog.Error("Failed to enable custom DNS resolver",
 				slog.String("err", err.Error()))
@@ -123,8 +126,8 @@ func main() {
 
 		slog.Info(fmt.Sprintf("Summoning http swarm at [%d...%d]/tcp", ports[0], ports[1]))
 
-		swarm := &utils.SwarmServer{
-			Ports: utils.UnwarpPortRange(ports),
+		swarm := &swarm.Server{
+			Ports: swarm.UnwarpPortRange(ports),
 			Handler: func(ctx context.Context, listener net.Listener) {
 
 				portSrv := http.Server{
@@ -150,7 +153,7 @@ func main() {
 		}
 
 		go func() {
-			if err := swarm.Serve(); err != nil {
+			if err := swarm.ListenAndServe(); err != nil {
 				errCh <- errors.New("http swarm error: " + err.Error())
 			}
 		}()
@@ -169,8 +172,8 @@ func main() {
 
 		slog.Info(fmt.Sprintf("Summoning socks swarm at [%d...%d]/tcp", ports[0], ports[1]))
 
-		swarm := &utils.SwarmServer{
-			Ports: utils.UnwarpPortRange(ports),
+		swarm := &swarm.Server{
+			Ports: swarm.UnwarpPortRange(ports),
 			Handler: func(ctx context.Context, listener net.Listener) {
 
 				portSrv := socksproxy.SocksServer{
@@ -193,12 +196,30 @@ func main() {
 		}
 
 		go func() {
-			if err := swarm.Serve(); err != nil {
+			if err := swarm.ListenAndServe(); err != nil {
 				errCh <- errors.New("socks swarm error: " + err.Error())
 			}
 		}()
 
 		defer swarm.Close()
+	}
+
+	if cfg.Services.Status != nil {
+
+		svcsrv := status.Service{
+			Config: *cfg.Services.Status,
+		}
+
+		go func() {
+			if err := svcsrv.ListenAndServe(); err != nil {
+				errCh <- errors.New("status service error: " + err.Error())
+			}
+		}()
+
+		slog.Info("Starting status service",
+			slog.String("at", svcsrv.At()))
+
+		defer svcsrv.Close()
 	}
 
 	select {

@@ -7,6 +7,10 @@ import (
 	"net"
 )
 
+type Config struct {
+	PortRange string `yaml:"port_range"`
+}
+
 type SocksHandler interface {
 	HandleConnection(ctx context.Context, conn net.Conn)
 }
