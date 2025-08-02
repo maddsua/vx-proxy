@@ -406,9 +406,9 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 		ulen := buff[1]
 
 		if ver != socksV5PasswordAuthVersion {
-			return nil, errors.New("invalid auth version")
+			return nil, fmt.Errorf("invalid auth version")
 		} else if ulen == 0 {
-			return nil, errors.New("empty username field")
+			return nil, fmt.Errorf("username length is zero")
 		}
 
 		unamePlus, err := utils.ReadBuffN(reader, int(ulen)+1)
@@ -418,7 +418,7 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 
 		plen := unamePlus[int(ulen)]
 		if plen == 0 {
-			return nil, err
+			return nil, fmt.Errorf("password length is zero")
 		}
 
 		pass, err := utils.ReadBuffN(reader, int(plen))
