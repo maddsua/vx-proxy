@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -70,4 +71,27 @@ func ParseRange(token string) (*Range, error) {
 	}
 
 	return &Range{Begin: begin, End: end}, nil
+}
+
+func DestHostAllowed(host string) error {
+
+	if val, _, err := net.SplitHostPort(host); err == nil {
+		host = val
+	}
+
+	//	idk why I am always putting there everywhere lol
+	host = strings.TrimSpace(host)
+
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return fmt.Errorf("localhost addresses not allowed")
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsPrivate() {
+			return fmt.Errorf("private addresses not allowed")
+		}
+	}
+
+	return nil
 }

@@ -46,7 +46,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	header, err := parseHttp1TunnelHeader(ctx, bufio.NewReaderSize(conn, 16*1024))
+	header, err := readHttp1TunnelHeader(ctx, bufio.NewReaderSize(conn, 16*1024))
 	if err != nil {
 
 		if err, ok := err.(HttpError); ok {
@@ -107,6 +107,16 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	if err := utils.DestHostAllowed(header.Host); err != nil {
+		slog.Warn("HTTP tunnel: Dialed host not allowed",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("host", header.Host))
+		_ = errorRespond(http.StatusBadGateway, nil)
+		return
+	}
+
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		slog.Debug("HTTP tunnel: Failed to reset tunnel timeouts",
 			slog.String("nas_addr", nasIP.String()),
@@ -130,7 +140,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", header.Host),
+			slog.String("host", header.Host),
 			slog.String("err", err.Error()))
 		_ = errorRespond(http.StatusBadGateway, nil)
 		return
@@ -145,7 +155,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
 		slog.String("username", *sess.UserName),
-		slog.String("remote", header.Host))
+		slog.String("host", header.Host))
 
 	var beginTunnel = func() error {
 		headers := http.Header{}
@@ -162,7 +172,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", header.Host),
+			slog.String("host", header.Host),
 			slog.String("err", err.Error()))
 		return
 	}
@@ -181,7 +191,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 				slog.String("client_id", sess.ClientID),
 				slog.String("sid", sess.ID.String()),
 				slog.String("username", *sess.UserName),
-				slog.String("remote", header.Host),
+				slog.String("host", header.Host),
 				slog.String("err", err.Error()))
 			return
 		}
@@ -229,7 +239,7 @@ func (this HttpError) Error() string {
 	return this.Msg
 }
 
-func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelHeader, error) {
+func readHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelHeader, error) {
 
 	const maxMethodLength = 8
 
@@ -296,14 +306,11 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 
 		next, isPrefix, err := reader.ReadLine()
 		if err != nil {
-			if err != io.EOF {
-				err = fmt.Errorf("read header: %v", err)
-			}
 			return nil, err
 		} else if isPrefix {
 			return nil, HttpError{
-				Msg:  fmt.Sprintf("read header: entity too large: %v", err),
-				Code: http.StatusRequestEntityTooLarge,
+				Msg:  fmt.Sprintf("headers too large: %v", err),
+				Code: http.StatusRequestHeaderFieldsTooLarge,
 			}
 		} else if len(next) == 0 {
 			break
