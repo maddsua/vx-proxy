@@ -99,6 +99,9 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	if sess == nil {
+		slog.Debug("SOCKSv5: No acceptable auth methods",
+			slog.String("nas_addr", localAddr.String()),
+			slog.String("client_ip", clientIP.String()))
 		_ = writeAuthMethod(socksV5AuthMethodUnacceptable)
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"sync"
 
 	"github.com/maddsua/vx-proxy/auth"
@@ -81,6 +82,7 @@ func (this *HttpServer) ListenAndServe() error {
 						if err := recover(); err != nil {
 							slog.Error("http server: handler panic recovered",
 								slog.Any("err", err))
+							fmt.Println("Stack:", string(debug.Stack()))
 						}
 					}()
 
