@@ -66,7 +66,9 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	switch {
 	case header.Method != http.MethodConnect:
-		_ = errorRespond(http.StatusMethodNotAllowed, nil)
+		headers := http.Header{}
+		headers.Set("Allow", "CONNECT")
+		_ = errorRespond(http.StatusMethodNotAllowed, headers)
 		return
 
 	case header.Host == "":
@@ -250,7 +252,12 @@ func readHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelHe
 		switch key {
 
 		case "host":
-			header.Host = val
+
+			if _, _, err := net.SplitHostPort(val); err == nil {
+				header.Host = val
+			} else {
+				header.Host = fmt.Sprintf("%s:80", val)
+			}
 
 		case "proxy-authorization":
 
