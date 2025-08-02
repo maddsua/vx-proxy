@@ -49,7 +49,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	header, err := parseHttp1TunnelHeader(ctx, bufio.NewReaderSize(conn, 16*1024))
 	if err != nil {
 
-		if err, ok := err.(ProtocolError); ok {
+		if err, ok := err.(HttpError); ok {
 			_ = errorRespond(err.Code, nil)
 		}
 
@@ -211,12 +211,12 @@ type TunnelHeader struct {
 	Trailer []byte
 }
 
-type ProtocolError struct {
+type HttpError struct {
 	Msg  string
 	Code int
 }
 
-func (this ProtocolError) Error() string {
+func (this HttpError) Error() string {
 	return this.Msg
 }
 
@@ -250,12 +250,12 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 
 		method, suffix, has := strings.Cut(line, " ")
 		if !has {
-			return ProtocolError{
+			return HttpError{
 				Msg:  "invalid http header: no method token",
 				Code: http.StatusBadRequest,
 			}
 		} else if len(method) > maxMethodLength {
-			return ProtocolError{
+			return HttpError{
 				Msg:  "invalid http header: method token too long",
 				Code: http.StatusBadRequest,
 			}
@@ -263,7 +263,7 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 
 		_, version, has := strings.Cut(strings.TrimSpace(suffix), " ")
 		if !has {
-			return ProtocolError{
+			return HttpError{
 				Msg:  "invalid http header: no vesrion token",
 				Code: http.StatusBadRequest,
 			}
@@ -273,7 +273,7 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 		case "HTTP/1.1", "HTTP/1.0", "HTTP/0.9":
 			break
 		default:
-			return ProtocolError{
+			return HttpError{
 				Msg:  "unsupported http version",
 				Code: http.StatusBadRequest,
 			}
@@ -292,7 +292,7 @@ func parseHttp1TunnelHeader(ctx context.Context, reader *bufio.Reader) (*TunnelH
 			}
 			return nil, err
 		} else if isPrefix {
-			return nil, ProtocolError{
+			return nil, HttpError{
 				Msg:  fmt.Sprintf("read header: entity too large: %v", err),
 				Code: http.StatusRequestEntityTooLarge,
 			}
