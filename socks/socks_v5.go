@@ -15,7 +15,7 @@ import (
 )
 
 type socksV5Authenticator interface {
-	Authorize(ctx context.Context, conn net.Conn) (*auth.Session, *auth.BasicCredentials, error)
+	Authorize(ctx context.Context, conn net.Conn) (*auth.Session, error)
 }
 
 type socksV5Reply byte
@@ -45,7 +45,6 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	var sess *auth.Session
-	var creds *auth.BasicCredentials
 
 	var writeReply = func(reply socksV5Reply) error {
 		//	note: not writing the address fields here as they're simply missing;
@@ -83,14 +82,14 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 				return
 			}
 
-			if sess, creds, err = methodImpl.Authorize(ctx, conn); err != nil {
+			if sess, err = methodImpl.Authorize(ctx, conn); err != nil {
 
-				if err == auth.ErrUnauthorized {
+				if credErr, ok := err.(CredentialsError); ok {
 					slog.Debug("SOCKSv5: Password auth: Unauthorized",
 						slog.String("nas_addr", nasIP.String()),
 						slog.Int("nas_port", nasPort),
 						slog.String("client_ip", clientIP.String()),
-						slog.String("username", creds.Username))
+						slog.String("username", credErr.Username))
 				} else {
 					slog.Error("SOCKSv5: Password auth failed",
 						slog.String("nas_addr", nasIP.String()),
@@ -423,7 +422,7 @@ type socksV5PasswordAuthenticator struct {
 	Controller auth.Controller
 }
 
-func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn net.Conn) (*auth.Session, *auth.BasicCredentials, error) {
+func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn net.Conn) (*auth.Session, error) {
 
 	var readCredentials = func(reader io.Reader) (*auth.BasicCredentials, error) {
 
@@ -470,7 +469,7 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 	creds, err := readCredentials(conn)
 	if err != nil {
 		_ = writeStatus(socksV5PasswordAuthFail)
-		return nil, nil, fmt.Errorf("unable to parse credentials")
+		return nil, fmt.Errorf("unable to parse credentials")
 	}
 
 	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
@@ -483,16 +482,19 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 		NasPort:          nasPort,
 	})
 
-	status := socksV5PasswordAuthOk
-	if sess == nil {
-		status = socksV5PasswordAuthFail
+	switch err {
+	case nil:
+		err = writeStatus(socksV5PasswordAuthOk)
+		return sess, err
+	case auth.ErrUnauthorized:
+		err = CredentialsError{Username: creds.Username}
 	}
 
-	if err := writeStatus(status); err != nil {
-		return nil, nil, err
+	if err := writeStatus(socksV5PasswordAuthFail); err != nil {
+		return nil, err
 	}
 
-	return sess, creds, err
+	return sess, err
 }
 
 type socksV5Cmd byte
