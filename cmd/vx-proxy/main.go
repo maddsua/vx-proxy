@@ -176,6 +176,9 @@ func main() {
 		}()
 
 		defer svcs.Close()
+
+		slog.Info("Starting socks service",
+			slog.String("range", cfg.Services.Socks.PortRange))
 	}
 
 	if cfg.Services.Status != nil {
