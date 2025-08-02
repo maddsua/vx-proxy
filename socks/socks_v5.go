@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/maddsua/vx-proxy/auth"
 	"github.com/maddsua/vx-proxy/utils"
@@ -128,6 +129,7 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	switch cmd {
 
 	case socksV5CmdConnect:
+
 		this.connect(conn, sess)
 
 	default:
@@ -157,6 +159,13 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("username", *sess.UserName),
 			slog.String("err", err.Error()))
 		_ = writeReply(socksV5ErrGeneric, dstAddr)
+		return
+	}
+
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		slog.Debug("SOCKSv5: Connect: Failed to reset connection deadline",
+			slog.Any("err", err),
+			slog.String("client_ip", conn.RemoteAddr().String()))
 		return
 	}
 
