@@ -158,7 +158,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("err", err.Error()))
-		_ = writeReply(socksV5ErrGeneric, dstAddr)
+		_ = writeReply(socksV5ErrAddrTypeNotSupported, dstAddr)
 		return
 	}
 
