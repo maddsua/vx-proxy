@@ -190,18 +190,27 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		header.Trailer = nil
 	}
 
-	//	todo: replace with a piper struct
+	//	let the data flow!
+	piper := utils.ConnectionPiper{
+		Rx: dstConn,
+		Tx: conn,
 
-	txCtx, cancelTx := context.WithCancel(sess.Context)
-	rxCtx, cancelRx := context.WithCancel(sess.Context)
+		TotalCounterRx: &sess.AcctRxBytes,
+		TotalCounterTx: &sess.AcctTxBytes,
 
-	//	start piping connections directly
-	go utils.PipeConnection(txCtx, cancelRx, dstConn, conn, sess.MaxDataRateTx, &sess.AcctTxBytes)
-	go utils.PipeConnection(rxCtx, cancelTx, conn, dstConn, sess.MaxDataRateRx, &sess.AcctRxBytes)
+		SpeedCapRx: sess.MaxDataRateRx,
+		SpeedCapTx: sess.MaxDataRateTx,
+	}
 
-	//	keep this scope active until pipe routines exit
-	<-txCtx.Done()
-	<-rxCtx.Done()
+	if err := piper.Pipe(sess.Context); err != nil {
+		slog.Debug("HTTP tunnel: Broken pipe",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("err", err.Error()))
+	}
 }
 
 type TunnelHeader struct {

@@ -3,19 +3,65 @@ package utils
 import (
 	"context"
 	"io"
-	"log/slog"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// arguments here:
-// ctx - own ctx, signals this half of a pipe when to exit;
-// cancelOther - callback function to cancel the other context (when we get EOF and want to stop transferring data);
-// dst - destination connection;
-// src - source connection;
-// acct - traffic accounting callback
-func PipeConnection(ctx context.Context, cancelOther context.CancelFunc, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) {
+// Piper splices two connections into one and acts as a middleman between two hosts in a cross pattern like so:
+//
+//	--------------
+//	|  A ---> B  |
+//	--------------
+//	|  B ---> A  |
+//	--------------
+type ConnectionPiper struct {
+	Rx net.Conn
+	Tx net.Conn
+
+	TotalCounterRx *atomic.Int64
+	TotalCounterTx *atomic.Int64
+	SpeedCapRx     int
+	SpeedCapTx     int
+}
+
+func (this *ConnectionPiper) Pipe(ctx context.Context) error {
+
+	txCtx, cancelTx := context.WithCancel(ctx)
+	rxCtx, cancelRx := context.WithCancel(ctx)
+
+	doneCh := make(chan error, 2)
+	defer close(doneCh)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		doneCh <- PipeConnection(txCtx, this.Rx, this.Tx, this.SpeedCapTx, this.TotalCounterTx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		doneCh <- PipeConnection(rxCtx, this.Tx, this.Rx, this.SpeedCapRx, this.TotalCounterRx)
+	}()
+
+	err := <-doneCh
+
+	cancelRx()
+	cancelTx()
+
+	_ = this.Rx.SetReadDeadline(time.Unix(1, 0))
+	_ = this.Tx.SetReadDeadline(time.Unix(1, 0))
+
+	wg.Wait()
+
+	return err
+}
+
+// Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
+func PipeConnection(ctx context.Context, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) error {
 
 	if ctx == nil {
 		panic("context is nil")
@@ -23,23 +69,6 @@ func PipeConnection(ctx context.Context, cancelOther context.CancelFunc, dst net
 		panic("dst is nil")
 	} else if src == nil {
 		panic("src is nil")
-	}
-
-	var shutdownDuplex = func() {
-		dst.SetReadDeadline(time.Unix(1, 0))
-	}
-
-	var reportBrokenPipe = func(err error) {
-		slog.Debug("Proxy pipe broken",
-			slog.String("err", err.Error()),
-			slog.String("src", src.RemoteAddr().String()),
-			slog.String("dst", dst.RemoteAddr().String()))
-	}
-
-	defer shutdownDuplex()
-
-	if cancelOther != nil {
-		defer cancelOther()
 	}
 
 	const buffSize = 32 * 1024
@@ -56,25 +85,21 @@ func PipeConnection(ctx context.Context, cancelOther context.CancelFunc, dst net
 		copyStarted = time.Now()
 
 		bytesSent, err := io.CopyN(dst, src, buffSize)
-		if bytesSent == 0 {
-			break
-		}
-
-		if transferAcct != nil {
+		if bytesSent > 0 && transferAcct != nil {
 			transferAcct.Add(bytesSent)
 		}
 
-		if ctx.Err() != nil || err == io.EOF {
-			break
-		}
-
 		if err != nil {
-			reportBrokenPipe(err)
-			break
+			if ctx.Err() != nil || err == io.EOF {
+				return nil
+			}
+			return err
 		}
 
 		if chunkDelay > 0 {
 			time.Sleep(chunkDelay - time.Since(copyStarted))
 		}
 	}
+
+	return nil
 }
