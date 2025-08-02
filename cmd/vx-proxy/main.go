@@ -18,10 +18,10 @@ import (
 	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
 	"github.com/maddsua/vx-proxy/cmd/vx-proxy/swarm"
 	"github.com/maddsua/vx-proxy/dns"
+	"github.com/maddsua/vx-proxy/socks"
 	"github.com/maddsua/vx-proxy/utils"
 
 	httproxy "github.com/maddsua/vx-proxy/http"
-	socksproxy "github.com/maddsua/vx-proxy/socks"
 )
 
 //	todo: print remote addresses
@@ -163,45 +163,19 @@ func main() {
 
 	if cfg.Services.Socks != nil {
 
-		ports, err := parseRange(cfg.Services.Socks.PortRange)
-		if err != nil {
-			slog.Error("Invalid config: Invalid socks swarm port range",
-				slog.String("err", err.Error()))
-			os.Exit(1)
-		}
-
-		slog.Info(fmt.Sprintf("Summoning socks swarm at [%d...%d]/tcp", ports[0], ports[1]))
-
-		swarm := &swarm.Server{
-			Ports: swarm.UnwarpPortRange(ports),
-			Handler: func(ctx context.Context, listener net.Listener) {
-
-				portSrv := socksproxy.SocksServer{
-					Handler: &socksproxy.Proxy{
-						Auth: authc,
-						Dns:  customDNS,
-					},
-				}
-
-				defer portSrv.Close()
-
-				go func() {
-					if err := portSrv.Serve(listener); err != nil && ctx.Err() == nil {
-						errCh <- fmt.Errorf("socks swarm serve task %s error: %s", listener.Addr().String(), err.Error())
-					}
-				}()
-
-				<-ctx.Done()
-			},
+		svcs := socks.SocksServer{
+			Config: *cfg.Services.Socks,
+			Auth:   authc,
+			Dns:    customDNS,
 		}
 
 		go func() {
-			if err := swarm.ListenAndServe(); err != nil {
+			if err := svcs.ListenAndServe(); err != nil {
 				errCh <- errors.New("socks swarm error: " + err.Error())
 			}
 		}()
 
-		defer swarm.Close()
+		defer svcs.Close()
 	}
 
 	if cfg.Services.Status != nil {
