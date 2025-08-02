@@ -67,7 +67,7 @@ func (this *SocksProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 }
 
 // This error can be returned from various auth hanlers to indicate invalid credentials;
-// it exists so that you don't have to pass the actuall credentials all around
+// it exists so that you don't have to pass the actual credentials all around
 type CredentialsError struct {
 	Username string
 }
