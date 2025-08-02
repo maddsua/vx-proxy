@@ -117,7 +117,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	dialer := net.Dialer{
-		LocalAddr: utils.GetLocalDialAddrTCP(conn.LocalAddr()),
+		LocalAddr: utils.GetReverseDialAddrTcp(conn),
 		Resolver:  this.Dns,
 	}
 

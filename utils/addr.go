@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-func GetLocalDialAddrTCP(addr net.Addr) *net.TCPAddr {
+func GetReverseDialAddrTcp(conn net.Conn) *net.TCPAddr {
 
-	if addr, ok := addr.(*net.TCPAddr); ok {
-		if !addr.IP.IsLoopback() {
+	if conn, ok := conn.(*net.TCPConn); ok {
+		if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
 			return &net.TCPAddr{IP: addr.IP}
 		}
 	}

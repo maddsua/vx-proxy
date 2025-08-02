@@ -161,7 +161,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 	}
 
 	dialer := net.Dialer{
-		LocalAddr: utils.GetLocalDialAddrTCP(conn.LocalAddr()),
+		LocalAddr: utils.GetReverseDialAddrTcp(conn),
 		Resolver:  this.Dns,
 	}
 
