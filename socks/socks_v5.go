@@ -90,7 +90,6 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 						slog.String("nas_addr", localAddr.String()),
 						slog.String("client_ip", clientIP.String()),
 						slog.String("err", err.Error()))
-					_ = writeReply(socksV5ErrGeneric)
 				}
 
 				return
@@ -436,10 +435,13 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 		NasPort:          int(localAddr.Port()),
 	})
 
-	if sess != nil {
-		if err := writeStatus(socksV5PasswordAuthOk); err != nil {
-			return nil, nil, err
-		}
+	status := socksV5PasswordAuthOk
+	if sess == nil {
+		status = socksV5PasswordAuthFail
+	}
+
+	if err := writeStatus(status); err != nil {
+		return nil, nil, err
 	}
 
 	return sess, creds, err
