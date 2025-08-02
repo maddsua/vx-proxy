@@ -93,8 +93,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		slog.Debug("HTTP tunnel: Unauthorized",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()),
-			slog.String("username", *sess.UserName))
+			slog.String("client_ip", clientIP.String()))
 		_ = errorRespond(http.StatusForbidden, nil)
 		return
 	} else if err != nil {
@@ -102,7 +101,6 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("username", *sess.UserName),
 			slog.String("authd_id", this.Auth.ID()),
 			slog.String("err", err.Error()))
 		_ = errorRespond(http.StatusInternalServerError, nil)
