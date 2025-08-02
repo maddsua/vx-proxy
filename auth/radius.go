@@ -215,7 +215,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 		slog.String("method", "passwd"),
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
-		slog.String("user", sess.UserID))
+		slog.String("user", sess.ClientID))
 
 	this.storeCache(sessKey, sess)
 	return sess, nil
@@ -343,16 +343,19 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 	sess := Session{
 		ID:           sessUuid,
-		UserID:       auth.Username,
+		UserName:     &auth.Username,
+		ClientID:     "<nil>",
 		LastActivity: time.Now(),
 		LastActSync:  time.Now(),
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
-		if utils.IsText(string(val)) {
-			sess.UserID = string(val)
-		} else if val, err := uuid.FromBytes(val); err == nil {
-			sess.UserID = val.String()
+		if uid, err := uuid.FromBytes(val); err == nil {
+			sess.ClientID = uid.String()
+		} else if uid, err := uuid.Parse(string(val)); err == nil {
+			sess.ClientID = uid.String()
+		} else if uid, err := ParseTextID(string(val)); err == nil {
+			sess.ClientID = uid
 		}
 	}
 

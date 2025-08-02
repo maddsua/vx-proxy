@@ -3,7 +3,6 @@ package utils
 import (
 	"errors"
 	"io"
-	"unicode"
 )
 
 func ReadBuffN(reader io.Reader, n int) ([]byte, error) {
@@ -26,15 +25,4 @@ func ReadBuffN(reader io.Reader, n int) ([]byte, error) {
 func ReadByte(reader io.Reader) (byte, error) {
 	buff, err := ReadBuffN(reader, 1)
 	return buff[0], err
-}
-
-func IsText(val string) bool {
-
-	for _, char := range val {
-		if !unicode.IsPrint(char) {
-			return false
-		}
-	}
-
-	return true
 }
