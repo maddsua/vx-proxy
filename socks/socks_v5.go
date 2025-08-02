@@ -69,6 +69,7 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	for _, method := range methods {
+
 		if methodImpl, has := this.Auth[method]; has {
 
 			if err := writeAuthMethod(method); err != nil {
@@ -94,6 +95,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 				return
 			}
+
+			break
 		}
 	}
 
