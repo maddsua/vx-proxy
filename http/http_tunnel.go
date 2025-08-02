@@ -112,8 +112,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("host", header.Host),
-			slog.String("err", err.Error()))
+			slog.String("host", header.Host))
 		_ = errorRespond(http.StatusBadGateway, nil)
 		return
 	}

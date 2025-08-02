@@ -167,8 +167,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("host", string(dstAddr)),
-			slog.String("err", err.Error()))
+			slog.String("host", string(dstAddr)))
 		_ = writeReply(socksV5ErrNetUnreachable, dstAddr)
 		return
 	}
