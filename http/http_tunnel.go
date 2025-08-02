@@ -123,7 +123,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	dstConn, err := dialer.DialContext(sess.Context, "tcp", header.Host)
 	if err != nil {
-		slog.Debug("HTTP tunnel: Failed to connect to the remote server",
+		slog.Debug("HTTP tunnel: Unable to dial destination",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
