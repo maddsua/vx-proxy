@@ -67,13 +67,13 @@ func NewRadiusController(cfg RadiusConfig) (Controller, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	this := &radiusController{
-		authAddr:      cfg.AuthAddr,
-		acctAddr:      cfg.AcctAddr,
-		secret:        []byte(cfg.Secret),
-		refreshTicker: time.NewTicker(10 * time.Second),
-		ctx:           ctx,
-		cancelCtx:     cancel,
-		stateCache:    map[string]CacheEntry{},
+		authAddr:         cfg.AuthAddr,
+		acctAddr:         cfg.AcctAddr,
+		secret:           []byte(cfg.Secret),
+		accountingTicker: time.NewTicker(10 * time.Second),
+		ctx:              ctx,
+		cancelCtx:        cancel,
+		stateCache:       map[string]CacheEntry{},
 	}
 
 	this.dacServer = &radius.PacketServer{
@@ -94,21 +94,33 @@ func NewRadiusController(cfg RadiusConfig) (Controller, error) {
 		}
 	}()
 
-	go this.refreshLoop()
+	go func() {
+
+		done := this.ctx.Done()
+
+		for {
+			select {
+			case <-this.accountingTicker.C:
+				this.reportAccounting()
+			case <-done:
+				return
+			}
+		}
+	}()
 
 	return this, nil
 }
 
 type radiusController struct {
-	authAddr      string
-	acctAddr      string
-	secret        []byte
-	stateCache    map[string]CacheEntry
-	cacheMtx      sync.Mutex
-	refreshTicker *time.Ticker
-	ctx           context.Context
-	cancelCtx     context.CancelFunc
-	dacServer     *radius.PacketServer
+	authAddr         string
+	acctAddr         string
+	secret           []byte
+	stateCache       map[string]CacheEntry
+	cacheMtx         sync.Mutex
+	accountingTicker *time.Ticker
+	ctx              context.Context
+	cancelCtx        context.CancelFunc
+	dacServer        *radius.PacketServer
 }
 
 func (this *radiusController) ID() string {
@@ -122,7 +134,7 @@ func (this *radiusController) Close() error {
 
 	//	 cancel internal contexts
 	this.cancelCtx()
-	this.refreshTicker.Stop()
+	this.accountingTicker.Stop()
 	this.dacServer.Shutdown(ctx)
 
 	//	wait for ticker routine to be done
@@ -469,33 +481,12 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 	return err
 }
 
-func (this *radiusController) refreshLoop() {
+func (this *radiusController) reportAccounting() {
 
-	var execRefresh = func() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
-		ctx, cancel := context.WithTimeout(context.Background(), (time.Minute*10)/9)
-		defer cancel()
-
-		var wg sync.WaitGroup
-
-		this.doRefresh(ctx, &wg)
-
-		wg.Wait()
-	}
-
-	done := this.ctx.Done()
-
-	for {
-		select {
-		case <-this.refreshTicker.C:
-			execRefresh()
-		case <-done:
-			return
-		}
-	}
-}
-
-func (this *radiusController) doRefresh(ctx context.Context, wg *sync.WaitGroup) {
+	var wg sync.WaitGroup
 
 	this.cacheMtx.Lock()
 	defer this.cacheMtx.Unlock()
@@ -597,6 +588,8 @@ func (this *radiusController) doRefresh(ctx context.Context, wg *sync.WaitGroup)
 			sess.LastActSync = now
 		}
 	}
+
+	wg.Wait()
 }
 
 func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.Request) {

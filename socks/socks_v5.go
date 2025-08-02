@@ -218,16 +218,27 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 	sess.ContextWg.Add(1)
 	defer sess.ContextWg.Done()
 
-	txCtx, cancelTx := context.WithCancel(sess.Context)
-	rxCtx, cancelRx := context.WithCancel(sess.Context)
+	//	let the data flow!
+	piper := utils.ConnectionPiper{
+		RemoteConn: dstConn,
+		ClientConn: conn,
 
-	//	start piping connections directly
-	go utils.PipeConnection(txCtx, cancelRx, dstConn, conn, sess.MaxDataRateTx, &sess.AcctTxBytes)
-	go utils.PipeConnection(rxCtx, cancelTx, conn, dstConn, sess.MaxDataRateTx, &sess.AcctRxBytes)
+		TotalCounterRx: &sess.AcctRxBytes,
+		TotalCounterTx: &sess.AcctTxBytes,
 
-	//	keep this scope active until pipe routines exit
-	<-txCtx.Done()
-	<-rxCtx.Done()
+		SpeedCapRx: sess.MaxDataRateRx,
+		SpeedCapTx: sess.MaxDataRateTx,
+	}
+
+	if err := piper.Pipe(sess.Context); err != nil {
+		slog.Debug("SOCKSv5: Connect: Broken pipe",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("err", err.Error()))
+	}
 }
 
 const (
