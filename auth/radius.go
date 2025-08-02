@@ -471,31 +471,24 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 
 func (this *radiusController) refreshLoop() {
 
-	var execRefresh = func() {
-
-		ctx, cancel := context.WithTimeout(context.Background(), (time.Minute*10)/9)
-		defer cancel()
-
-		var wg sync.WaitGroup
-
-		this.doRefresh(ctx, &wg)
-
-		wg.Wait()
-	}
-
 	done := this.ctx.Done()
 
 	for {
 		select {
 		case <-this.refreshTicker.C:
-			execRefresh()
+			this.doRefresh()
 		case <-done:
 			return
 		}
 	}
 }
 
-func (this *radiusController) doRefresh(ctx context.Context, wg *sync.WaitGroup) {
+func (this *radiusController) doRefresh() {
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	var wg sync.WaitGroup
 
 	this.cacheMtx.Lock()
 	defer this.cacheMtx.Unlock()
@@ -597,6 +590,8 @@ func (this *radiusController) doRefresh(ctx context.Context, wg *sync.WaitGroup)
 			sess.LastActSync = now
 		}
 	}
+
+	wg.Wait()
 }
 
 func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.Request) {
