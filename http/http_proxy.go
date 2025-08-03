@@ -178,6 +178,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 		headers.Set("Date", time.Now().In(time.UTC).Format(time.RFC1123))
 		headers.Set("Server", "vx/tunnel")
+		headers.Set("X-Destination", hostAddr)
 
 		if err := headers.Write(rw.Writer); err != nil {
 			return err
