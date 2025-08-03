@@ -6,6 +6,55 @@ Because v2ray is cool but I want some flexibility. Also just because I can.
 
 Work in progress, more protocols are coming in the future.
 
+## Proxy protocols
+
+### SOCKS 5
+
+Supported commands:
+- ✅ Connect
+- ❌ Bind
+- ❌ Associate
+
+Supported address types:
+- ✅ IPv4
+- ✅ IPv6
+- ✅ Domain name
+
+Supported auth methods:
+- ❌ None
+- ❌ GSSAPI
+- ✅ Password
+- ❌ Challenge Handshake
+- ❌ Challenge Response
+- ❌ SSL
+- ❌ NDS Auth
+- ❌ Multi Auth Framework
+- ❌ JSON
+
+### HTTP
+
+Supported proxy protocol (doesn't affect the stuff you're sending throuh it, so for example, acessing sites via https DOES work):
+- ✅ HTTP/0.9
+- ✅ HTTP/1.0
+- ✅ HTTP/1.1
+- ❌ HTTP/2
+- ❌ HTTP/3
+
+Supported modes (methods):
+- ✅ Tunnel (`CONNECT`)
+- ❌ Relay (`GET`,`POST`, etc.)
+
+Supported address types:
+- ✅ IPv4
+- ✅ IPv6
+- ✅ Domain name
+
+Supported auth methods:
+- ❌ None
+- ✅ Basic proxy auth (username/password)
+- ❌ JWT
+- ❌ Opaque Bearer
+
 ## RADIUS protocol
 
 vx uses RADIUS by default instead of relying on config files and controls lists. That is a huge advantage for the systems that need dynamic authorization. This allows you to rotate credentials anytime using a centralized manager service. Kinda nice if you wanna do a bunch of testing with different usernames or something.
