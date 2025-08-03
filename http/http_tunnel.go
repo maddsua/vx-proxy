@@ -101,7 +101,7 @@ func (this *TunnelProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("authd_id", this.Auth.ID()),
+			slog.String("authd_type", this.Auth.Type()),
 			slog.String("err", err.Error()))
 		_ = errorRespond(http.StatusInternalServerError, nil)
 		return

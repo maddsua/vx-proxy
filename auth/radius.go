@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -112,19 +113,29 @@ func NewRadiusController(cfg RadiusConfig) (Controller, error) {
 }
 
 type radiusController struct {
-	authAddr         string
-	acctAddr         string
-	secret           []byte
-	stateCache       map[string]CacheEntry
-	cacheMtx         sync.Mutex
+	authAddr string
+	acctAddr string
+	secret   []byte
+
+	stateCache map[string]CacheEntry
+	cacheMtx   sync.Mutex
+
 	accountingTicker *time.Ticker
-	ctx              context.Context
-	cancelCtx        context.CancelFunc
-	dacServer        *radius.PacketServer
+
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+
+	dacServer *radius.PacketServer
+
+	errorRate radiusErrorRate
 }
 
-func (this *radiusController) ID() string {
-	return "radius:" + this.authAddr
+func (this *radiusController) Type() string {
+	return "radius"
+}
+
+func (this *radiusController) ErrorRate() float64 {
+	return this.errorRate.Rate()
 }
 
 func (this *radiusController) Close() error {
@@ -302,6 +313,8 @@ func (this *radiusController) storeCache(key string, entry CacheEntry) {
 
 func (this *radiusController) authRequestAccess(ctx context.Context, auth PasswordProxyAuth) (*Session, error) {
 
+	defer this.errorRate.Add()
+
 	req := radius.New(radius.CodeAccessRequest, this.secret)
 
 	if err := rfc2865.UserName_SetString(req, auth.Username); err != nil {
@@ -339,12 +352,14 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 	resp, err := this.exchangeAuth(ctx, req)
 	if err != nil {
+		this.errorRate.AddError()
 		return nil, fmt.Errorf("radius access request failed: %v", err)
 	}
 
 	if resp.Code == radius.CodeAccessReject {
 		return nil, ErrUnauthorized
 	} else if resp.Code != radius.CodeAccessAccept {
+		this.errorRate.AddError()
 		return nil, fmt.Errorf("radius access request failed: unexpected response code: %d", resp.Code)
 	}
 
@@ -395,6 +410,8 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 func (this *radiusController) acctStartSession(ctx context.Context, sess *Session) error {
 
+	defer this.errorRate.Add()
+
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Start); err != nil {
@@ -405,80 +422,87 @@ func (this *radiusController) acctStartSession(ctx context.Context, sess *Sessio
 		panic(err)
 	}
 
-	_, err := this.exchangeAcct(ctx, req)
-	return err
+	if _, err := this.exchangeAcct(ctx, req); err != nil {
+		this.errorRate.AddError()
+		return err
+	}
+
+	return nil
 }
 
 func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Session) error {
 
-	var err error
-	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
+	defer this.errorRate.Add()
 
+	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
 	if volRx == 0 && volTx == 0 {
 		return nil
 	}
 
-	defer func() {
-		if err == nil {
-			sess.AcctRxBytes.Add(-volRx)
-			sess.AcctTxBytes.Add(-volTx)
-		}
-	}()
-
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
-	if err = rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
+	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
+	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
+	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
+	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
 		panic(err)
 	}
 
-	_, err = this.exchangeAcct(ctx, req)
-	return err
+	if _, err := this.exchangeAcct(ctx, req); err != nil {
+		this.errorRate.AddError()
+		return err
+	}
+
+	sess.AcctRxBytes.Add(-volRx)
+	sess.AcctTxBytes.Add(-volTx)
+
+	return nil
 }
 
 func (this *radiusController) acctStopSession(ctx context.Context, sess *Session) error {
 
-	var err error
-	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
-
-	defer func() {
-		if err == nil {
-			sess.AcctRxBytes.Store(0)
-			sess.AcctTxBytes.Store(0)
-		}
-	}()
+	defer this.errorRate.Add()
 
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
-	if err = rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Stop); err != nil {
+	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Stop); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
+	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
-		panic(err)
+	if vol := sess.AcctRxBytes.Load(); vol > 0 {
+		if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(vol)); err != nil {
+			panic(err)
+		}
 	}
 
-	if err = rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
-		panic(err)
+	if vol := sess.AcctTxBytes.Load(); vol > 0 {
+		if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(vol)); err != nil {
+			panic(err)
+		}
 	}
 
-	_, err = this.exchangeAcct(ctx, req)
-	return err
+	if _, err := this.exchangeAcct(ctx, req); err != nil {
+		this.errorRate.AddError()
+		return err
+	}
+
+	sess.AcctRxBytes.Store(0)
+	sess.AcctTxBytes.Store(0)
+
+	return nil
 }
 
 func (this *radiusController) reportAccounting() {
@@ -681,4 +705,42 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		slog.String("dac_addr", req.RemoteAddr.String()))
 
 	wrt.Write(req.Response(radius.CodeCoAACK))
+}
+
+type radiusErrorRate struct {
+	countdown time.Time
+	total     atomic.Int64
+	errors    atomic.Int64
+}
+
+func (this *radiusErrorRate) refresh() {
+	if this.countdown.IsZero() {
+		this.countdown = time.Now()
+	} else if time.Since(this.countdown) > time.Minute {
+		this.countdown = time.Now()
+		this.total.Store(0)
+		this.errors.Store(0)
+	}
+}
+
+func (this *radiusErrorRate) Add() {
+	this.refresh()
+	this.total.Add(1)
+}
+
+func (this *radiusErrorRate) AddError() {
+	this.refresh()
+	this.errors.Add(1)
+}
+
+func (this *radiusErrorRate) Rate() float64 {
+
+	total := this.total.Load()
+	errors := this.errors.Load()
+
+	if total == 0 {
+		return 0
+	}
+
+	return float64(errors) / float64(total)
 }

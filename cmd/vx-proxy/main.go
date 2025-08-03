@@ -12,7 +12,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/maddsua/vx-proxy/auth"
-	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
+	"github.com/maddsua/vx-proxy/cmd/vx-proxy/telemetry"
 	"github.com/maddsua/vx-proxy/dns"
 	"github.com/maddsua/vx-proxy/socks"
 	"github.com/maddsua/vx-proxy/utils"
@@ -111,19 +111,19 @@ func main() {
 
 	if cfg.Services.Http != nil {
 
-		svcs := httproxy.HttpServer{
+		svc := httproxy.HttpServer{
 			Config: *cfg.Services.Http,
 			Auth:   authc,
 			Dns:    customDNS,
 		}
 
 		go func() {
-			if err := svcs.ListenAndServe(); err != nil {
+			if err := svc.ListenAndServe(); err != nil {
 				errCh <- errors.New("http service error: " + err.Error())
 			}
 		}()
 
-		defer svcs.Close()
+		defer svc.Close()
 
 		slog.Info("Starting http service",
 			slog.String("range", cfg.Services.Http.PortRange))
@@ -131,40 +131,41 @@ func main() {
 
 	if cfg.Services.Socks != nil {
 
-		svcs := socks.SocksServer{
+		svc := socks.SocksServer{
 			Config: *cfg.Services.Socks,
 			Auth:   authc,
 			Dns:    customDNS,
 		}
 
 		go func() {
-			if err := svcs.ListenAndServe(); err != nil {
+			if err := svc.ListenAndServe(); err != nil {
 				errCh <- errors.New("socks service error: " + err.Error())
 			}
 		}()
 
-		defer svcs.Close()
+		defer svc.Close()
 
 		slog.Info("Starting socks service",
 			slog.String("range", cfg.Services.Socks.PortRange))
 	}
 
-	if cfg.Services.Status != nil {
+	if cfg.Services.Telemetry != nil {
 
-		svcsrv := status.Service{
-			Config: *cfg.Services.Status,
+		svc := telemetry.Telemetry{
+			Config:         *cfg.Services.Telemetry,
+			AuthController: authc,
 		}
 
 		go func() {
-			if err := svcsrv.ListenAndServe(); err != nil {
-				errCh <- errors.New("status service error: " + err.Error())
+			if err := svc.ListenAndServe(); err != nil {
+				errCh <- errors.New("telementry service error: " + err.Error())
 			}
 		}()
 
-		slog.Info("Starting status service",
-			slog.String("at", svcsrv.At()))
+		slog.Info("Starting telementry service",
+			slog.String("at", svc.At()))
 
-		defer svcsrv.Close()
+		defer svc.Close()
 	}
 
 	select {
