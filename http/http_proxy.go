@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -237,7 +236,19 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	if buffered := rw.Reader.Buffered(); buffered > 0 {
 
-		if _, err := io.CopyN(dstConn, rw, int64(buffered)); err != nil {
+		buff, err := rw.Reader.Peek(buffered)
+		if err != nil {
+			slog.Debug("HTTP tunnel: Failed to peek tx bufferred data",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
+				slog.String("client_ip", clientIP.String()),
+				slog.String("client_id", sess.ID.String()),
+				slog.String("sid", sess.ID.String()),
+				slog.String("host", hostAddr),
+				slog.String("err", err.Error()))
+		}
+
+		if _, err := dstConn.Write(buff); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -252,7 +263,9 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		sess.AcctTxBytes.Add(int64(buffered))
 	}
 
-	//	explicitly set rw to nil as we won't be using it anymore
+	//	explicitly reset rw as we won't be using it anymore
+	rw.Reader.Reset(nil)
+	rw.Writer.Reset(nil)
 	rw = nil
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
