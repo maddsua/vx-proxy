@@ -40,6 +40,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
 
+		wrt.Header().Set("Proxy-Authenticate", "Basic")
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
 
