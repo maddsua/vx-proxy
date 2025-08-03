@@ -42,15 +42,13 @@ type SocksServer struct {
 	pool []net.Listener
 	wg   sync.WaitGroup
 
-	handler *SocksProxy
-
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 }
 
 func (this *SocksServer) ListenAndServe() error {
 
-	this.handler = &SocksProxy{
+	connectionHandler := &SocksProxy{
 		Auth: this.Auth,
 		Dns:  this.Dns,
 	}
@@ -66,7 +64,7 @@ func (this *SocksServer) ListenAndServe() error {
 
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
-			this.shutdown()
+			this.Close()
 			return err
 		}
 
@@ -105,7 +103,7 @@ func (this *SocksServer) ListenAndServe() error {
 
 					defer conn.Close()
 
-					this.handler.HandleConnection(this.ctx, conn)
+					connectionHandler.HandleConnection(this.ctx, conn)
 
 				}(next)
 			}
@@ -116,7 +114,11 @@ func (this *SocksServer) ListenAndServe() error {
 	return nil
 }
 
-func (this *SocksServer) shutdown() {
+func (this *SocksServer) Close() {
+
+	if this.ctx == nil {
+		return
+	}
 
 	this.cancelCtx()
 
@@ -130,14 +132,4 @@ func (this *SocksServer) shutdown() {
 
 	this.ctx = nil
 	this.cancelCtx = nil
-}
-
-func (this *SocksServer) Close() error {
-
-	if this.ctx == nil {
-		return nil
-	}
-
-	this.shutdown()
-	return nil
 }

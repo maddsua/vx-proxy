@@ -3,9 +3,8 @@ package http
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net"
-	"runtime/debug"
+	"net/http"
 	"sync"
 
 	"github.com/maddsua/vx-proxy/auth"
@@ -39,10 +38,8 @@ type HttpServer struct {
 	Auth auth.Controller
 	Dns  *net.Resolver
 
-	pool []net.Listener
+	pool []*http.Server
 	wg   sync.WaitGroup
-
-	handler *TunnelProxy
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
@@ -50,7 +47,7 @@ type HttpServer struct {
 
 func (this *HttpServer) ListenAndServe() error {
 
-	this.handler = &TunnelProxy{
+	requestHandler := &HttpProxy{
 		Auth: this.Auth,
 		Dns:  this.Dns,
 	}
@@ -60,68 +57,52 @@ func (this *HttpServer) ListenAndServe() error {
 		return fmt.Errorf("invalid port range: '%v'", this.Config.PortRange)
 	}
 
+	errorCh := make(chan error, 1)
+
 	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
 
 	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
 
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-		if err != nil {
-			this.shutdown()
-			return err
+		portSrv := http.Server{
+			Addr:        fmt.Sprintf(":%d", port),
+			Handler:     requestHandler,
+			ConnContext: setContextConn,
 		}
 
-		this.pool = append(this.pool, listener)
+		this.pool = append(this.pool, &portSrv)
+
 		this.wg.Add(1)
 
 		go func() {
 
 			defer this.wg.Done()
-			defer listener.Close()
 
-			for this.ctx.Err() == nil {
-
-				next, err := listener.Accept()
-				if err != nil {
-
-					if this.ctx.Err() != nil {
-						return
-					}
-
-					slog.Debug("http server: failed to accept",
-						slog.String("err", err.Error()))
-
-					continue
-				}
-
-				go func(conn net.Conn) {
-
-					defer func() {
-						if err := recover(); err != nil {
-							slog.Error("http server: handler panic recovered",
-								slog.Any("err", err))
-							fmt.Println("Stack:", string(debug.Stack()))
-						}
-					}()
-
-					defer conn.Close()
-
-					this.handler.HandleConnection(this.ctx, conn)
-				}(next)
+			if err := portSrv.ListenAndServe(); err != nil && this.ctx.Err() == nil {
+				errorCh <- fmt.Errorf("serve: %s: %v", portSrv.Addr, err)
 			}
 		}()
 	}
 
-	<-this.ctx.Done()
-	return nil
+	select {
+	case err := <-errorCh:
+		this.Close()
+		return err
+	case <-this.ctx.Done():
+		return nil
+	}
 }
 
-func (this *HttpServer) shutdown() {
+func (this *HttpServer) Close() {
+
+	if this.ctx == nil {
+		return
+	}
 
 	this.cancelCtx()
 
-	for _, listener := range this.pool {
-		if listener != nil {
-			listener.Close()
+	for _, srv := range this.pool {
+		if srv != nil {
+			srv.Close()
 		}
 	}
 
@@ -131,12 +112,15 @@ func (this *HttpServer) shutdown() {
 	this.cancelCtx = nil
 }
 
-func (this *HttpServer) Close() error {
+type httpRequestContext struct{}
 
-	if this.ctx == nil {
-		return nil
+func setContextConn(parentCtx context.Context, conn net.Conn) context.Context {
+	return context.WithValue(parentCtx, httpRequestContext{}, conn)
+}
+
+func getContextConn(ctx context.Context) net.Conn {
+	if val, ok := ctx.Value(httpRequestContext{}).(net.Conn); ok && val != nil {
+		return val
 	}
-
-	this.shutdown()
 	return nil
 }
