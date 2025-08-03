@@ -434,36 +434,26 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 
 	defer this.errorRate.Add()
 
-	var err error
 	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
-
 	if volRx == 0 && volTx == 0 {
 		return nil
 	}
 
-	//	todo: wtf is this?
-	defer func() {
-		if err == nil {
-			sess.AcctRxBytes.Add(-volRx)
-			sess.AcctTxBytes.Add(-volTx)
-		}
-	}()
-
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
-	if err = rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
+	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
+	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
+	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
+	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
 		panic(err)
 	}
 
@@ -471,6 +461,9 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 		this.errorRate.AddError()
 		return err
 	}
+
+	sess.AcctRxBytes.Add(-volRx)
+	sess.AcctTxBytes.Add(-volTx)
 
 	return nil
 }
@@ -479,39 +472,35 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 
 	defer this.errorRate.Add()
 
-	var err error
-	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
-
-	//	todo: wtf is this?
-	defer func() {
-		if err == nil {
-			sess.AcctRxBytes.Store(0)
-			sess.AcctTxBytes.Store(0)
-		}
-	}()
-
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
-	if err = rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Stop); err != nil {
+	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Stop); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
+	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
 		panic(err)
 	}
 
-	if err = rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
-		panic(err)
+	if vol := sess.AcctRxBytes.Load(); vol > 0 {
+		if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(vol)); err != nil {
+			panic(err)
+		}
 	}
 
-	if err = rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
-		panic(err)
+	if vol := sess.AcctTxBytes.Load(); vol > 0 {
+		if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(vol)); err != nil {
+			panic(err)
+		}
 	}
 
 	if _, err := this.exchangeAcct(ctx, req); err != nil {
 		this.errorRate.AddError()
 		return err
 	}
+
+	sess.AcctRxBytes.Store(0)
+	sess.AcctTxBytes.Store(0)
 
 	return nil
 }
