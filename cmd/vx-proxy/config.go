@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/maddsua/vx-proxy/auth"
@@ -15,16 +16,62 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Porter interface {
+	ServiceID() string
+	//	Must return the list of required ports in the format of 'port/network', e.g. 1080/tcp
+	BindsPorts() []string
+}
+
+// Represents a port->service_id map
+type PortSet map[string]string
+
+func (this PortSet) Register(service Porter) error {
+
+	for _, port := range service.BindsPorts() {
+
+		if reservedBy, has := this[port]; has {
+			return fmt.Errorf("port %s already reserved by service '%s'", port, reservedBy)
+		}
+
+		this[port] = service.ServiceID()
+	}
+
+	return nil
+}
+
 type Config struct {
-	Auth     auth.Config    `yaml:"auth"`
+	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
 	Dns      dns.Config     `yaml:"dns"`
 }
 
+type AuthConfig struct {
+	Radius auth.RadiusConfig `yaml:"radius"`
+}
+
+func (this *AuthConfig) Validate(portSet PortSet) error {
+
+	if err := this.Radius.Validate(); err != nil {
+		return fmt.Errorf("radius: %s", err.Error())
+	}
+
+	if err := portSet.Register(this.Radius); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (this *Config) Validate() error {
 
-	if err := this.Auth.Validate(); err != nil {
+	portSet := PortSet{}
+
+	if err := this.Auth.Validate(portSet); err != nil {
 		return fmt.Errorf("auth: %s", err.Error())
+	}
+
+	if err := this.Services.Validate(portSet); err != nil {
+		return fmt.Errorf("services: %s", err.Error())
 	}
 
 	return nil
@@ -34,6 +81,21 @@ type ServicesConfig struct {
 	Http      *http.Config      `yaml:"http"`
 	Socks     *socks.Config     `yaml:"socks"`
 	Telemetry *telemetry.Config `yaml:"telemetry"`
+}
+
+func (this *ServicesConfig) Validate(portSet PortSet) error {
+
+	stuctVal := reflect.ValueOf(*this)
+
+	for idx := 0; idx < stuctVal.NumField(); idx++ {
+		if val, ok := stuctVal.Field(idx).Interface().(Porter); ok || val != nil {
+			if err := portSet.Register(val); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func loadConfigFile(path string) (*Config, error) {

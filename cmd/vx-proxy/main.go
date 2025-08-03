@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/maddsua/vx-proxy/auth"
@@ -103,7 +105,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	defer authc.Close()
+	slog.Info("RADIUS auth enabled",
+		slog.String("auth_addr", cfg.Auth.Radius.AuthAddr),
+		slog.String("acct_addr", cfg.Auth.Radius.AcctAddr),
+		slog.String("listen_dac", cfg.Auth.Radius.ListenDAC))
 
 	errCh := make(chan error, 1)
 	exitCh := make(chan os.Signal, 1)
@@ -152,8 +157,8 @@ func main() {
 	if cfg.Services.Telemetry != nil {
 
 		svc := telemetry.Telemetry{
-			Config:         *cfg.Services.Telemetry,
-			AuthController: authc,
+			Config:     *cfg.Services.Telemetry,
+			AuthStatus: authc,
 		}
 
 		go func() {
@@ -174,6 +179,12 @@ func main() {
 			slog.String("err", err.Error()))
 		os.Exit(1)
 	case <-exitCh:
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		authc.Shutdown(ctx)
+
 		slog.Warn("Service vx-proxy is exiting...")
 		break
 	}

@@ -10,4 +10,4 @@ services:
   socks:
     port_range: 8820-8825
   telemetry:
-    listen_addr: localhost:1433
+    listen_addr: localhost:1111

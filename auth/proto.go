@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -19,7 +18,7 @@ type Controller interface {
 
 	ErrorRate() float64
 
-	Close() error
+	Shutdown(ctx context.Context) error
 }
 
 type BasicCredentials struct {
@@ -85,19 +84,6 @@ func SessionIdFromBytes(bytes []byte) uuid.NullUUID {
 	}
 
 	return uuid.NullUUID{}
-}
-
-type Config struct {
-	Radius RadiusConfig `yaml:"radius"`
-}
-
-func (this *Config) Validate() error {
-
-	if err := this.Radius.Validate(); err != nil {
-		return fmt.Errorf("radius: %s", err.Error())
-	}
-
-	return nil
 }
 
 func ParseTextID(val string) (string, error) {

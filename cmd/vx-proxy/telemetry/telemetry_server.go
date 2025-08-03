@@ -3,6 +3,7 @@ package telemetry
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -13,10 +14,23 @@ type Config struct {
 	ListenAddr string `yaml:"listen_addr"`
 }
 
+func (this Config) ServiceID() string {
+	return "telemetry"
+}
+
+func (this Config) BindsPorts() []string {
+
+	if _, port, err := net.SplitHostPort(this.ListenAddr); err == nil {
+		return []string{fmt.Sprintf("%s/tcp", port)}
+	}
+
+	return nil
+}
+
 type Telemetry struct {
 	Config
 
-	AuthController ErrorRater
+	AuthStatus ErrorRater
 
 	srv     *http.Server
 	runID   uuid.UUID
@@ -47,9 +61,9 @@ func (this *Telemetry) ListenAndServe() error {
 			//	auth controller metrics
 			"auth": map[string]any{
 				//	controller type
-				"type": this.AuthController.Type(),
+				"type": this.AuthStatus.Type(),
 				//	controller error rate
-				"error_rate": this.AuthController.ErrorRate(),
+				"error_rate": this.AuthStatus.ErrorRate(),
 			},
 		})
 	})

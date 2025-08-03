@@ -16,6 +16,23 @@ type Config struct {
 	PortRange string `yaml:"port_range"`
 }
 
+func (this Config) ServiceID() string {
+	return "socks"
+}
+
+func (this Config) BindsPorts() []string {
+
+	var ports []string
+
+	if portRange, err := utils.ParseRange(this.PortRange); err == nil {
+		for port := portRange.Begin; port <= portRange.End; port++ {
+			ports = append(ports, fmt.Sprintf("%d/tcp", port))
+		}
+	}
+
+	return ports
+}
+
 type SocksServer struct {
 	Config
 
