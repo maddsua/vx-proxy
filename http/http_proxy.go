@@ -99,7 +99,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 			slog.String("client_id", sess.ID.String()),
 			slog.String("sid", sess.ID.String()),
 			slog.String("host", dstHost))
-		wrt.WriteHeader(http.StatusBadGateway)
+		wrt.WriteHeader(http.StatusNetworkAuthenticationRequired)
 		return
 	}
 
@@ -153,11 +153,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return
 	}
 
-	dialer := net.Dialer{
-		LocalAddr: utils.GetReverseDialAddrTcp(conn),
-		Resolver:  this.Dns,
-	}
-
 	var flushResponse = func(statusCode int, statusText string, headers http.Header) error {
 
 		if statusText == "" {
@@ -191,6 +186,11 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return rw.Writer.Flush()
 	}
 
+	dialer := net.Dialer{
+		LocalAddr: utils.GetReverseDialAddrTcp(conn),
+		Resolver:  this.Dns,
+	}
+
 	dstConn, err := dialer.DialContext(sess.Context, "tcp", hostAddr)
 	if err != nil {
 
@@ -213,14 +213,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	defer dstConn.Close()
 
-	slog.Debug("HTTP tunnel: Connected",
-		slog.String("nas_addr", nasIP.String()),
-		slog.Int("nas_port", nasPort),
-		slog.String("client_ip", clientIP.String()),
-		slog.String("client_id", sess.ID.String()),
-		slog.String("sid", sess.ID.String()),
-		slog.String("host", hostAddr))
-
 	if err := flushResponse(200, "Connection established", nil); err != nil {
 		slog.Debug("HTTP tunnel: Failed to establish proxy connection",
 			slog.String("nas_addr", nasIP.String()),
@@ -230,6 +222,14 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			slog.String("sid", sess.ID.String()),
 			slog.String("err", err.Error()))
 	}
+
+	slog.Debug("HTTP tunnel: Connected",
+		slog.String("nas_addr", nasIP.String()),
+		slog.Int("nas_port", nasPort),
+		slog.String("client_ip", clientIP.String()),
+		slog.String("client_id", sess.ID.String()),
+		slog.String("sid", sess.ID.String()),
+		slog.String("host", hostAddr))
 
 	//	add to a wait group to make sure session-stops account the full amount of traffix
 	sess.ContextWg.Add(1)
