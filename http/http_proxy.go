@@ -109,7 +109,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 
 		conn, rw, err := wrt.(http.Hijacker).Hijack()
 		if err != nil {
-			slog.Error("HTTP tunnel: Connection not switchable",
+			slog.Warn("HTTP tunnel: Connection not switchable",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
@@ -144,7 +144,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	defer conn.Close()
 
 	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
-		slog.Error("HTTP tunnel: Failed to set timeouts",
+		slog.Debug("HTTP tunnel: Failed to set timeouts",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
@@ -270,7 +270,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	rw = nil
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
-		slog.Error("HTTP tunnel: Failed to reset timeouts",
+		slog.Debug("HTTP tunnel: Failed to reset timeouts",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
