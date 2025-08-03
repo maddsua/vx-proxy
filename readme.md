@@ -10,17 +10,17 @@ Work in progress, more protocols are coming in the future.
 
 ### SOCKS 5
 
-Supported commands:
+Commands:
 - ✅ Connect
 - ❌ Bind
 - ❌ Associate
 
-Supported address types:
+Address types:
 - ✅ IPv4
 - ✅ IPv6
 - ✅ Domain name
 
-Supported auth methods:
+Auth methods:
 - ❌ None
 - ❌ GSSAPI
 - ✅ Password
@@ -33,23 +33,21 @@ Supported auth methods:
 
 ### HTTP
 
-Supported proxy protocol (doesn't affect the stuff you're sending throuh it, so for example, acessing sites via https DOES work):
-- ❌ HTTP/0.9
-- ❌ HTTP/1.0
+Protocols (doesn't affect the stuff you're sending throuh it, so for example, acessing sites via https DOES work):
 - ✅ HTTP/1.1
 - ❌ HTTP/2
 - ❌ HTTP/3
 
-Supported modes (methods):
+Methods:
 - ✅ Tunnel (`CONNECT`)
-- ✅ Relay (`GET`,`POST`, etc.)
+- ❌ Relay (`GET`,`POST`, etc.)
 
-Supported address types:
+Address types:
 - ✅ IPv4
 - ✅ IPv6
 - ✅ Domain name
 
-Supported auth methods:
+Auth methods:
 - ❌ None
 - ✅ Basic proxy auth (username/password)
 - ❌ JWT
