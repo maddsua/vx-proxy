@@ -80,7 +80,7 @@ func (this *Telemetry) At() string {
 
 	addr, err := this.getAddr()
 	if err == nil {
-		return fmt.Sprintf("http://%s/status", addr)
+		return fmt.Sprintf("http://%s/public/status", addr)
 	}
 
 	return ""
