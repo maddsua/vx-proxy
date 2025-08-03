@@ -15,6 +15,7 @@ import (
 )
 
 type socksV5Authenticator interface {
+	Type() string
 	Authorize(ctx context.Context, conn net.Conn) (*auth.Session, error)
 }
 
@@ -95,6 +96,7 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 						slog.String("nas_addr", nasIP.String()),
 						slog.Int("nas_port", nasPort),
 						slog.String("client_ip", clientIP.String()),
+						slog.String("authd_type", methodImpl.Type()),
 						slog.String("err", err.Error()))
 				}
 
@@ -420,6 +422,10 @@ const (
 
 type socksV5PasswordAuthenticator struct {
 	Controller auth.Controller
+}
+
+func (this *socksV5PasswordAuthenticator) Type() string {
+	return this.Controller.Type()
 }
 
 func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn net.Conn) (*auth.Session, error) {

@@ -1,0 +1,41 @@
+openapi: 3.0.0
+info:
+  title: Telemetry Service
+  # please don't confuse this with application version;
+  # this is just to prevent the tooling from losing all its marbles
+  version: 0.1.0
+paths:
+  /public/status:
+    get:
+      summary: Get service status
+      description: Returns the current status of the service, including its unique run ID, uptime, and authentication controller metrics
+      responses:
+        '200':
+          description: A JSON object containing service status information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                    description: Unique identifier for this specific service run
+                    example: 1eb3e63e-7c29-47bf-967f-5297c2b70cbd
+                  uptime_s:
+                    type: integer
+                    format: int64
+                    description: Service uptime in seconds
+                    example: 53
+                  auth:
+                    type: object
+                    description: Authentication controller metrics
+                    properties:
+                      type:
+                        type: string
+                        description: The type of the authentication controller
+                        example: radius
+                      error_rate:
+                        type: number
+                        format: float
+                        description: The error rate of the authentication controller
+                        example: 0.05

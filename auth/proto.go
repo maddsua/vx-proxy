@@ -14,8 +14,11 @@ import (
 )
 
 type Controller interface {
-	ID() string
+	Type() string
 	WithPassword(ctx context.Context, auth PasswordProxyAuth) (*Session, error)
+
+	ErrorRate() float64
+
 	Close() error
 }
 

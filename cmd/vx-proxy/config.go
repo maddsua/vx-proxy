@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/maddsua/vx-proxy/auth"
-	"github.com/maddsua/vx-proxy/cmd/vx-proxy/status"
+	"github.com/maddsua/vx-proxy/cmd/vx-proxy/telemetry"
 	"github.com/maddsua/vx-proxy/dns"
 	"github.com/maddsua/vx-proxy/http"
 	"github.com/maddsua/vx-proxy/socks"
@@ -31,9 +31,9 @@ func (this *Config) Validate() error {
 }
 
 type ServicesConfig struct {
-	Http   *http.Config   `yaml:"http"`
-	Socks  *socks.Config  `yaml:"socks"`
-	Status *status.Config `yaml:"status"`
+	Http      *http.Config      `yaml:"http"`
+	Socks     *socks.Config     `yaml:"socks"`
+	Telemetry *telemetry.Config `yaml:"telemetry"`
 }
 
 func loadConfigFile(path string) (*Config, error) {
