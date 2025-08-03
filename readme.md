@@ -2,56 +2,31 @@
 
 # A scalable RADIUS-controlled proxy service.
 
-Because v2ray is cool but I want some flexibility. Also just because I can.
+**Goals, really briefly** 
 
-Work in progress, more protocols are coming in the future.
+To create a transparent remotely-controlled, private and easy to deploy proxy service.
+
+Because v2ray is cool but no way in hell I trust a bunch of dudes from a country that's known to do not so funni things on the web.
 
 ## Proxy protocols
 
 ### SOCKS 5
 
-Commands:
-- ✅ Connect
-- ❌ Bind
-- ❌ Associate
-
-Address types:
-- ✅ IPv4
-- ✅ IPv6
-- ✅ Domain name
-
-Auth methods:
-- ❌ None
-- ❌ GSSAPI
-- ✅ Password
-- ❌ Challenge Handshake
-- ❌ Challenge Response
-- ❌ SSL
-- ❌ NDS Auth
-- ❌ Multi Auth Framework
-- ❌ JSON
+Features:
+- ✅ `CONNECT` command
+- ⏳ `BIND` command
+- ⏳ `ASSOCIATE` command
+- ⏳ UDP proxy
+- ✅ IPv4/IPV6/DOMAIN address type support
+- ✅ Password auth
 
 ### HTTP
 
-Protocols (doesn't affect the stuff you're sending throuh it, so for example, acessing sites via https DOES work):
-- ✅ HTTP/1.1
-- ❌ HTTP/2
-- ❌ HTTP/3
-
-Methods:
-- ✅ Tunnel (`CONNECT`)
-- ❌ Relay (`GET`,`POST`, etc.)
-
-Address types:
-- ✅ IPv4
-- ✅ IPv6
-- ✅ Domain name
-
-Auth methods:
-- ❌ None
+Features:
+- ✅ HTTP tunnelling (`CONNECT` method)
+- ⏳ Forward-proxying (`GET`,`POST`, etc.)
 - ✅ Basic proxy auth (username/password)
-- ❌ JWT
-- ❌ Opaque Bearer
+- ⏳ TLS (HTTPS) proxy
 
 ## RADIUS protocol
 
