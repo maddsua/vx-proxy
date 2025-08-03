@@ -34,15 +34,15 @@ Supported auth methods:
 ### HTTP
 
 Supported proxy protocol (doesn't affect the stuff you're sending throuh it, so for example, acessing sites via https DOES work):
-- ✅ HTTP/0.9
-- ✅ HTTP/1.0
+- ❌ HTTP/0.9
+- ❌ HTTP/1.0
 - ✅ HTTP/1.1
 - ❌ HTTP/2
 - ❌ HTTP/3
 
 Supported modes (methods):
 - ✅ Tunnel (`CONNECT`)
-- ❌ Relay (`GET`,`POST`, etc.)
+- ✅ Relay (`GET`,`POST`, etc.)
 
 Supported address types:
 - ✅ IPv4
