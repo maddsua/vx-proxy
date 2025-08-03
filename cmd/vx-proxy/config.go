@@ -40,16 +40,33 @@ func (this PortSet) Register(service Porter) error {
 }
 
 type Config struct {
-	Auth     auth.Config    `yaml:"auth"`
+	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
 	Dns      dns.Config     `yaml:"dns"`
+}
+
+type AuthConfig struct {
+	Radius auth.RadiusConfig `yaml:"radius"`
+}
+
+func (this *AuthConfig) Validate(portSet PortSet) error {
+
+	if err := this.Radius.Validate(); err != nil {
+		return fmt.Errorf("radius: %s", err.Error())
+	}
+
+	if err := portSet.Register(this.Radius); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (this *Config) Validate() error {
 
 	portSet := PortSet{}
 
-	if err := this.Auth.Validate(); err != nil {
+	if err := this.Auth.Validate(portSet); err != nil {
 		return fmt.Errorf("auth: %s", err.Error())
 	}
 

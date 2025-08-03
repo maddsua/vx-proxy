@@ -40,30 +40,43 @@ func (this *RadiusConfig) Validate() error {
 	utils.ExpandEnv(&this.AcctAddr)
 	utils.ExpandEnv(&this.Secret)
 
+	if this.AuthAddr == "" {
+		return errors.New("invalid opt: AuthAddr is empty")
+	} else if this.AcctAddr == "" {
+		this.AcctAddr = this.AuthAddr
+	}
+
+	if this.Secret == "" {
+		return errors.New("invalid opt: Secret is empty")
+	}
+
+	if this.ListenDAC == "" {
+		this.ListenDAC = ":3799"
+	}
+
 	return nil
 }
 
-func NewRadiusController(cfg RadiusConfig) (Controller, error) {
+func (this RadiusConfig) ServiceID() string {
+	return "radius"
+}
 
-	if cfg.AuthAddr == "" {
-		return nil, errors.New("invalid opt: AuthAddr is empty")
-	} else if cfg.AcctAddr == "" {
-		cfg.AcctAddr = cfg.AuthAddr
+func (this RadiusConfig) BindsPorts() []string {
+
+	var ports []string
+
+	var add = func(addr string) {
+		if _, port, err := net.SplitHostPort(addr); err == nil {
+			ports = append(ports, fmt.Sprintf("%s/udp", port))
+		}
 	}
 
-	if cfg.Secret == "" {
-		return nil, errors.New("invalid opt: Secret is empty")
-	}
+	add(this.ListenDAC)
 
-	listenDac := cfg.ListenDAC
-	if listenDac == "" {
-		listenDac = ":3799"
-	}
+	return ports
+}
 
-	slog.Info("RADIUS auth module enabled",
-		slog.String("auth_addr", cfg.AuthAddr),
-		slog.String("acct_addr", cfg.AcctAddr),
-		slog.String("listen_dac", listenDac))
+func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -80,34 +93,16 @@ func NewRadiusController(cfg RadiusConfig) (Controller, error) {
 	this.dacServer = &radius.PacketServer{
 		Handler:      radius.HandlerFunc(this.dacHandler),
 		SecretSource: radius.StaticSecretSource(this.secret),
-		Addr:         listenDac,
+		Addr:         cfg.ListenDAC,
 	}
 
-	dacPacketServer, err := net.ListenPacket("udp", this.dacServer.Addr)
-	if err != nil {
+	var err error
+	if this.dacListener, err = net.ListenPacket("udp", this.dacServer.Addr); err != nil {
 		return nil, err
 	}
 
-	go func() {
-		if err := this.dacServer.Serve(dacPacketServer); err != nil && this.ctx.Err() == nil {
-			slog.Error("RADIUS: DAC: Server error",
-				slog.String("err", err.Error()))
-		}
-	}()
-
-	go func() {
-
-		done := this.ctx.Done()
-
-		for {
-			select {
-			case <-this.accountingTicker.C:
-				this.reportAccounting()
-			case <-done:
-				return
-			}
-		}
-	}()
+	go this.asyncDac()
+	go this.asyncAcct()
 
 	return this, nil
 }
@@ -118,14 +113,15 @@ type radiusController struct {
 	secret   []byte
 
 	stateCache map[string]CacheEntry
-	cacheMtx   sync.Mutex
+	sessionMtx sync.Mutex
 
 	accountingTicker *time.Ticker
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
-	dacServer *radius.PacketServer
+	dacServer   *radius.PacketServer
+	dacListener net.PacketConn
 
 	errorRate radiusErrorRate
 }
@@ -138,50 +134,68 @@ func (this *radiusController) ErrorRate() float64 {
 	return this.errorRate.Rate()
 }
 
-func (this *radiusController) Close() error {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (this *radiusController) Shutdown(ctx context.Context) error {
 
 	//	 cancel internal contexts
 	this.cancelCtx()
 	this.accountingTicker.Stop()
 	this.dacServer.Shutdown(ctx)
+	this.dacListener.Close()
 
 	//	wait for ticker routine to be done
-	this.cacheMtx.Lock()
-	defer this.cacheMtx.Unlock()
+	this.sessionMtx.Lock()
+	defer this.sessionMtx.Unlock()
 
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
+	if ctx.Err() == nil {
 
-	//	report all active sessions as stopped
-	var wg sync.WaitGroup
+		//	report all active sessions as stopped
+		var wg sync.WaitGroup
 
-	for _, entry := range this.stateCache {
+		for _, entry := range this.stateCache {
 
-		sess, ok := entry.(*Session)
-		if !ok {
-			continue
+			sess, ok := entry.(*Session)
+			if !ok {
+				continue
+			}
+
+			if sess.Context != nil {
+
+				wg.Add(1)
+
+				go func() {
+					defer wg.Done()
+					if err := this.acctStopSession(ctx, sess); err != nil {
+						fmt.Println(err)
+					}
+				}()
+			}
 		}
 
-		if sess.Context != nil {
-
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-				if err := this.acctStopSession(ctx, sess); err != nil {
-					fmt.Println(err)
-				}
-			}()
-		}
+		wg.Wait()
 	}
 
-	wg.Wait()
+	return ctx.Err()
+}
 
-	return nil
+func (this *radiusController) asyncDac() {
+	if err := this.dacServer.Serve(this.dacListener); err != nil && this.ctx.Err() == nil {
+		slog.Error("RADIUS: DAC: Server error",
+			slog.String("err", err.Error()))
+	}
+}
+
+func (this *radiusController) asyncAcct() {
+
+	done := this.ctx.Done()
+
+	for {
+		select {
+		case <-this.accountingTicker.C:
+			this.reportAccounting()
+		case <-done:
+			return
+		}
+	}
 }
 
 func (this *radiusController) exchangeAuth(ctx context.Context, packet *radius.Packet) (*radius.Packet, error) {
@@ -246,8 +260,8 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 
 func (this *radiusController) lookupCachedSession(key string) (*Session, bool) {
 
-	this.cacheMtx.Lock()
-	defer this.cacheMtx.Unlock()
+	this.sessionMtx.Lock()
+	defer this.sessionMtx.Unlock()
 
 	entry := this.stateCache[key]
 
@@ -266,8 +280,8 @@ func (this *radiusController) lookupCachedSession(key string) (*Session, bool) {
 
 func (this *radiusController) lookupCachedSessionByID(sid uuid.UUID) *Session {
 
-	this.cacheMtx.Lock()
-	defer this.cacheMtx.Unlock()
+	this.sessionMtx.Lock()
+	defer this.sessionMtx.Unlock()
 
 	for _, entry := range this.stateCache {
 
@@ -296,8 +310,8 @@ func (this *radiusController) storeCache(key string, entry CacheEntry) {
 		}
 	}
 
-	this.cacheMtx.Lock()
-	defer this.cacheMtx.Unlock()
+	this.sessionMtx.Lock()
+	defer this.sessionMtx.Unlock()
 
 	if old := this.stateCache[key]; old != nil {
 
@@ -512,8 +526,8 @@ func (this *radiusController) reportAccounting() {
 
 	var wg sync.WaitGroup
 
-	this.cacheMtx.Lock()
-	defer this.cacheMtx.Unlock()
+	this.sessionMtx.Lock()
+	defer this.sessionMtx.Unlock()
 
 	now := time.Now()
 	syncActivityAfter := now.Add(-time.Minute)
