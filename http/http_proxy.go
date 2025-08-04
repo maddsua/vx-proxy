@@ -319,10 +319,24 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 		return
 	}
 
+	//	check that a user doesn't try to use websockets over forwarder
+	connection, upgrade := req.Header.Get("Connection"), req.Header.Get("Upgrade")
+	if strings.Contains(strings.ToLower(connection), "upgrade") && upgrade != "" {
+		slog.Debug("HTTP forward: Upgrade not allowed",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("host", forwardReq.Host),
+			slog.String("upgrade", upgrade))
+	}
+
 	for key, values := range req.Header {
 		for _, val := range values {
 			switch key {
-			case "X-Via":
+			case "X-Via", "Connection", "Upgrade":
 				forwardReq.Header.Set(key, fmt.Sprintf("%s; vx/forward", val))
 			default:
 				forwardReq.Header.Set(key, val)
@@ -361,10 +375,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	for key, values := range resp.Header {
 
 		switch key {
-		case "X-Via",
-			//	todo: handle content compression
-			"Accept-Encoding",
-			"TE":
+		case "X-Via", "Transfer-Encoding", "TE":
 			continue
 		}
 
