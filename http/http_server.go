@@ -12,17 +12,13 @@ import (
 )
 
 type Config struct {
-	PortRange string `yaml:"port_range"`
+	PortRange *utils.PortRange `yaml:"port_range"`
 }
 
 func (this *Config) Validate() error {
 
-	if this.PortRange == "" {
+	if this.PortRange == nil {
 		return fmt.Errorf("port_range is missing")
-	}
-
-	if _, err := utils.ParseRange(this.PortRange); err != nil {
-		return fmt.Errorf("port_range format invalid")
 	}
 
 	return nil
@@ -32,8 +28,8 @@ func (this Config) BindsPorts() []string {
 
 	var ports []string
 
-	if portRange, err := utils.ParseRange(this.PortRange); err == nil {
-		for port := portRange.Begin; port <= portRange.End; port++ {
+	if this.PortRange != nil {
+		for port := this.PortRange.Begin; port <= this.PortRange.End; port++ {
 			ports = append(ports, fmt.Sprintf("%d/tcp", port))
 		}
 	}
@@ -61,16 +57,11 @@ func (this *HttpServer) ListenAndServe() error {
 		Dns:  this.Dns,
 	}
 
-	portRange, err := utils.ParseRange(this.Config.PortRange)
-	if err != nil {
-		return fmt.Errorf("invalid port range: '%v'", this.Config.PortRange)
-	}
-
 	errorCh := make(chan error, 1)
 
 	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
 
-	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
+	for port := this.PortRange.Begin; port <= this.PortRange.End && this.PortRange.Size() > 1; port++ {
 
 		portSrv := http.Server{
 			Addr:        fmt.Sprintf(":%d", port),

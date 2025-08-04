@@ -167,7 +167,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		return
 	}
 
-	if err := utils.DestHostAllowed(string(dstAddr)); err != nil {
+	if utils.IsPrivateNetwork(string(dstAddr)) {
 		slog.Warn("SOCKSv5: Connect: Dialed host not allowed",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),

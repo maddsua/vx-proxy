@@ -1,10 +1,7 @@
 package utils
 
 import (
-	"errors"
-	"fmt"
 	"net"
-	"strconv"
 	"strings"
 )
 
@@ -34,46 +31,7 @@ func GetAddrPort(addr net.Addr) (net.IP, int, bool) {
 	return nil, 0, false
 }
 
-type Range struct {
-	Begin int
-	End   int
-}
-
-func ParseRange(token string) (*Range, error) {
-
-	if token == "" {
-		return nil, errors.New("empty token")
-	}
-
-	before, after, has := strings.Cut(token, "-")
-	if !has {
-
-		val, err := strconv.Atoi(token)
-		if err != nil {
-			return nil, err
-		}
-
-		return &Range{Begin: val, End: val}, nil
-	}
-
-	begin, err := strconv.Atoi(strings.TrimSpace(before))
-	if err != nil {
-		return nil, err
-	}
-
-	end, err := strconv.Atoi(strings.TrimSpace(after))
-	if err != nil {
-		return nil, err
-	}
-
-	if end <= begin {
-		return nil, errors.New("invalid range")
-	}
-
-	return &Range{Begin: begin, End: end}, nil
-}
-
-func DestHostAllowed(host string) error {
+func IsPrivateNetwork(host string) bool {
 
 	if val, _, err := net.SplitHostPort(host); err == nil {
 		host = val
@@ -81,19 +39,18 @@ func DestHostAllowed(host string) error {
 
 	//	idk why I am always putting there everywhere lol
 	host = strings.TrimSpace(host)
-
 	switch host {
 	case "localhost", "127.0.0.1", "::1":
-		return fmt.Errorf("localhost addresses not allowed")
+		return true
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsPrivate() {
-			return fmt.Errorf("private addresses not allowed")
+			return true
 		}
 	}
 
-	return nil
+	return false
 }
 
 // Strips localhost prefix so that a listener that this is getting passed to would bind to all available addresses,

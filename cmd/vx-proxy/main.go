@@ -131,7 +131,7 @@ func main() {
 		defer svc.Close()
 
 		slog.Info("Starting http service",
-			slog.String("range", cfg.Services.Http.PortRange))
+			slog.String("range", cfg.Services.Http.PortRange.String()))
 	}
 
 	if cfg.Services.Socks != nil {
@@ -151,7 +151,7 @@ func main() {
 		defer svc.Close()
 
 		slog.Info("Starting socks service",
-			slog.String("range", cfg.Services.Socks.PortRange))
+			slog.String("range", cfg.Services.Socks.PortRange.String()))
 	}
 
 	if cfg.Services.Telemetry != nil {

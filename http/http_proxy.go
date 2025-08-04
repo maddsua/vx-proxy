@@ -96,7 +96,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err := utils.DestHostAllowed(dstHost); err != nil {
+	if utils.IsPrivateNetwork(dstHost) {
 		slog.Warn("HTTP proxy: Dialed host not allowed",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
