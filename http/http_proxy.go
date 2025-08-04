@@ -399,7 +399,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	//	this wonderful logic down here streams response body until
 	//	either all the data gets transferred OR the session context is cancelled
 
-	doneCh := make(chan bool, 1)
+	copyDoneCh := make(chan bool)
 
 	go func() {
 
@@ -415,11 +415,11 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 				slog.String("err", err.Error()))
 		}
 
-		doneCh <- true
+		copyDoneCh <- true
 	}()
 
 	select {
-	case <-doneCh:
+	case <-copyDoneCh:
 		return
 	case <-sess.Context.Done():
 		return
