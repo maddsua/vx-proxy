@@ -82,6 +82,10 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	//	lock session wg
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
+
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
 		slog.Debug("HTTP proxy: Unable to determine target host",
@@ -231,10 +235,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		slog.String("sid", sess.ID.String()),
 		slog.String("host", hostAddr))
 
-	//	add to a wait group to make sure session-stops account the full amount of traffix
-	sess.ContextWg.Add(1)
-	defer sess.ContextWg.Done()
-
 	if buffered := rw.Reader.Buffered(); buffered > 0 {
 
 		buff, err := rw.Reader.Peek(buffered)
@@ -309,17 +309,28 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	//	todo: account sent bytes
+	body := accountedReader{Reader: req.Body}
+	defer sess.AcctTxBytes.Add(body.TotalRead)
 
-	wrt.Header().Set("X-Via", "vx/forward")
-
-	req, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, req.Body)
+	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &body)
 	if err != nil {
+		wrt.Header().Set("X-Via", "vx/forward")
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	for key, values := range req.Header {
+		for _, val := range values {
+			switch key {
+			case "X-Via":
+				forwardReq.Header.Set(key, fmt.Sprintf("%s; vx/forward", val))
+			default:
+				forwardReq.Header.Set(key, val)
+			}
+		}
+	}
+
+	resp, err := http.DefaultClient.Do(forwardReq)
 	if err != nil {
 		slog.Debug("HTTP forward: Request rejected",
 			slog.String("nas_addr", nasIP.String()),
@@ -328,7 +339,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("host", req.Host),
+			slog.String("host", forwardReq.Host),
 			slog.String("err", err.Error()))
 		wrt.WriteHeader(http.StatusBadGateway)
 		return
@@ -342,24 +353,20 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ID.String()),
 		slog.String("sid", sess.ID.String()),
-		slog.String("host", req.Host))
+		slog.String("host", forwardReq.Host))
 
-	var headerAllowed = func(key string) bool {
+	for key, values := range resp.Header {
+
 		switch key {
 		case "X-Via",
 			//	todo: handle content compression
 			"Accept-Encoding",
 			"TE":
-			return false
+			continue
 		}
-		return true
-	}
 
-	for key, values := range resp.Header {
-		if headerAllowed(key) {
-			for _, val := range values {
-				wrt.Header().Set(key, val)
-			}
+		for _, val := range values {
+			wrt.Header().Set(key, val)
 		}
 	}
 
@@ -375,7 +382,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("host", req.Host),
+			slog.String("host", forwardReq.Host),
 			slog.String("err", err.Error()))
 		return
 	} else if written > 0 {
@@ -452,4 +459,15 @@ func getRequestTargetHost(req *http.Request) string {
 	}
 
 	return ""
+}
+
+type accountedReader struct {
+	Reader    io.Reader
+	TotalRead int64
+}
+
+func (this *accountedReader) Read(p []byte) (n int, err error) {
+	n, err = this.Reader.Read(p)
+	this.TotalRead += int64(n)
+	return
 }
