@@ -21,11 +21,11 @@ func (this *Config) Validate() error {
 		return fmt.Errorf("listen_addr is missing")
 	}
 
-	return nil
-}
+	if !utils.NetAddrFormatValid(this.ListenAddr) {
+		return fmt.Errorf("listen_addr format invalid")
+	}
 
-func (this Config) ServiceID() string {
-	return "telemetry"
+	return nil
 }
 
 func (this Config) BindsPorts() []string {
