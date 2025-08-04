@@ -309,7 +309,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	body := accountedReader{Reader: req.Body}
+	body := utils.ReadAccounter{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(body.TotalRead)
 
 	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &body)
@@ -346,6 +346,8 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	}
 
 	defer resp.Body.Close()
+
+	sess.AcctTxBytes.Add(int64(getRequestEstimatedSize(forwardReq)))
 
 	slog.Debug("HTTP forward: Sent",
 		slog.String("nas_addr", nasIP.String()),
@@ -461,13 +463,24 @@ func getRequestTargetHost(req *http.Request) string {
 	return ""
 }
 
-type accountedReader struct {
-	Reader    io.Reader
-	TotalRead int64
-}
+// Returns approximate close-ish enough size of a request header.
+// It doesn't account for the request body itself
+func getRequestEstimatedSize(req *http.Request) int {
 
-func (this *accountedReader) Read(p []byte) (n int, err error) {
-	n, err = this.Reader.Read(p)
-	this.TotalRead += int64(n)
-	return
+	if req == nil {
+		return 0
+	}
+
+	const headerOverheadMagicNumber = 16
+	const pixieDustMagicNumber = 4
+
+	total := len(req.Method) + len(req.RequestURI) + headerOverheadMagicNumber
+
+	for key, values := range req.Header {
+		for _, val := range values {
+			total += len(key) + len(val) + pixieDustMagicNumber
+		}
+	}
+
+	return total
 }

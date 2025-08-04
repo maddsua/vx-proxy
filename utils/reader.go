@@ -26,3 +26,14 @@ func ReadByte(reader io.Reader) (byte, error) {
 	buff, err := ReadBuffN(reader, 1)
 	return buff[0], err
 }
+
+type ReadAccounter struct {
+	Reader    io.Reader
+	TotalRead int64
+}
+
+func (this *ReadAccounter) Read(p []byte) (n int, err error) {
+	n, err = this.Reader.Read(p)
+	this.TotalRead += int64(n)
+	return
+}
