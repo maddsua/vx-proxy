@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -81,6 +82,10 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	//	lock session wg
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
+
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
 		slog.Debug("HTTP proxy: Unable to determine target host",
@@ -124,8 +129,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		this.ServeTunnel(conn, rw, sess, dstHost)
 
 	default:
-		//	todo: handle relay
-		wrt.WriteHeader(http.StatusMethodNotAllowed)
+		this.ServeForward(wrt, req, sess)
 	}
 }
 
@@ -173,7 +177,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 		headers.Set("Date", time.Now().In(time.UTC).Format(time.RFC1123))
 		headers.Set("Server", "vx/tunnel")
-		headers.Set("X-Destination", hostAddr)
+		headers.Set("X-Forwarded", fmt.Sprintf("to=%s", hostAddr))
 
 		if err := headers.Write(rw.Writer); err != nil {
 			return err
@@ -201,7 +205,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", hostAddr),
+			slog.String("host", hostAddr),
 			slog.String("err", err.Error()))
 
 		headers := http.Header{}
@@ -230,10 +234,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		slog.String("client_id", sess.ID.String()),
 		slog.String("sid", sess.ID.String()),
 		slog.String("host", hostAddr))
-
-	//	add to a wait group to make sure session-stops account the full amount of traffix
-	sess.ContextWg.Add(1)
-	defer sess.ContextWg.Done()
 
 	if buffered := rw.Reader.Buffered(); buffered > 0 {
 
@@ -301,6 +301,128 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			slog.String("sid", sess.ID.String()),
 			slog.String("host", hostAddr),
 			slog.String("err", err.Error()))
+	}
+}
+
+func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, sess *auth.Session) {
+
+	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
+
+	bodyReader := utils.ReadAccounter{Reader: req.Body}
+	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
+
+	wrt.Header().Set("X-Via", "vx/forward")
+
+	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &bodyReader)
+	if err != nil {
+		wrt.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	//	check that a user doesn't try to use websockets over forwarder
+	connection, upgrade := req.Header.Get("Connection"), req.Header.Get("Upgrade")
+	if strings.Contains(strings.ToLower(connection), "upgrade") && upgrade != "" {
+		slog.Debug("HTTP forward: Upgrade not allowed",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("host", forwardReq.Host),
+			slog.String("upgrade", upgrade))
+		wrt.WriteHeader(http.StatusNotImplemented)
+		return
+	}
+
+	for key, values := range req.Header {
+		for _, val := range values {
+			switch http.CanonicalHeaderKey(key) {
+			case "X-Via", "Connection", "Upgrade":
+				continue
+			default:
+				forwardReq.Header.Add(key, val)
+			}
+		}
+	}
+
+	resp, err := http.DefaultClient.Do(forwardReq)
+	if err != nil {
+		slog.Debug("HTTP forward: Request rejected",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("host", forwardReq.Host),
+			slog.String("err", err.Error()))
+		wrt.Header().Set("X-Via", "vx/forward")
+		wrt.WriteHeader(http.StatusBadGateway)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	sess.AcctRxBytes.Add(int64(getResponseEstimatedSize(resp)))
+	sess.AcctTxBytes.Add(int64(getRequestEstimatedSize(forwardReq)))
+
+	slog.Debug("HTTP forward: Sent",
+		slog.String("nas_addr", nasIP.String()),
+		slog.Int("nas_port", nasPort),
+		slog.String("client_ip", clientIP.String()),
+		slog.String("client_id", sess.ID.String()),
+		slog.String("sid", sess.ID.String()),
+		slog.String("host", forwardReq.Host))
+
+	for key, values := range resp.Header {
+		for _, val := range values {
+			switch http.CanonicalHeaderKey(key) {
+			case "X-Via":
+				wrt.Header().Set(key, fmt.Sprintf("%s; vx/forward", val))
+			case "Transfer-Encoding", "TE":
+				continue
+			default:
+				wrt.Header().Add(key, val)
+			}
+		}
+	}
+
+	wrt.WriteHeader(resp.StatusCode)
+
+	bodyWriter := utils.WriteAccounter{
+		Writer: &utils.FlushWriter{Writer: wrt},
+	}
+	defer sess.AcctRxBytes.Add(bodyWriter.TotalWrite)
+
+	//	this wonderful logic down here streams response body until
+	//	either all the data gets transferred OR the session context is cancelled
+
+	copyDoneCh := make(chan bool)
+
+	go func() {
+
+		if _, err := io.Copy(&bodyWriter, resp.Body); err != nil {
+			slog.Debug("HTTP forward: Copy body failed",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
+				slog.String("client_ip", clientIP.String()),
+				slog.String("client_id", sess.ClientID),
+				slog.String("sid", sess.ID.String()),
+				slog.String("username", *sess.UserName),
+				slog.String("host", forwardReq.Host),
+				slog.String("err", err.Error()))
+		}
+
+		copyDoneCh <- true
+	}()
+
+	select {
+	case <-copyDoneCh:
+		return
+	case <-sess.Context.Done():
+		return
 	}
 }
 
@@ -373,4 +495,39 @@ func getRequestTargetHost(req *http.Request) string {
 	}
 
 	return ""
+}
+
+// Returns approximate close-ish enough size of a request header.
+// It doesn't account for the request body itself
+func getRequestEstimatedSize(req *http.Request) int {
+
+	const headerOverheadMagicNumber = 16
+	const pixieDustMagicNumber = 4
+
+	total := len(req.Method) + len(req.RequestURI) + headerOverheadMagicNumber
+
+	for key, values := range req.Header {
+		for _, val := range values {
+			total += len(key) + len(val) + pixieDustMagicNumber
+		}
+	}
+
+	return total
+}
+
+// Returns approximate close-ish enough size of a request header.
+// It doesn't account for the request body itself
+func getResponseEstimatedSize(resp *http.Response) int {
+
+	const pixieDustMagicNumber = 7
+
+	total := len(resp.Proto) + len(resp.Status) + pixieDustMagicNumber
+
+	for key, values := range resp.Header {
+		for _, val := range values {
+			total += len(key) + len(val) + pixieDustMagicNumber
+		}
+	}
+
+	return total
 }

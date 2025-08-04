@@ -116,6 +116,10 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	//	lock session wg
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
+
 	cmd, err := readSocksV5Cmd(conn)
 	if err != nil {
 		slog.Debug("SOCKSv5: Command error",
@@ -197,7 +201,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", string(dstAddr)),
+			slog.String("host", string(dstAddr)),
 			slog.String("err", err.Error()))
 
 		_ = writeReply(socksV5ErrHostUnreachable, dstAddr)
@@ -225,11 +229,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
 		slog.String("username", *sess.UserName),
-		slog.String("remote", string(dstAddr)))
-
-	// add to a wait group to make sure session-stops account the full amount of traffix
-	sess.ContextWg.Add(1)
-	defer sess.ContextWg.Done()
+		slog.String("host", string(dstAddr)))
 
 	//	let the data flow!
 	piper := utils.ConnectionPiper{

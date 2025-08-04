@@ -305,7 +305,7 @@ func (this *radiusController) storeCache(key string, entry CacheEntry) {
 			panic(fmt.Sprintf("creds miss expiry time is zero on key '%s'", key))
 		}
 	} else if sess, ok := entry.(*Session); ok {
-		if sess.Context == nil || sess.CancelContext == nil {
+		if sess.Context == nil || sess.Terminate == nil {
 			panic(fmt.Sprintf("session context or cacncel function are invalid on key '%s'", key))
 		}
 	}
@@ -316,7 +316,7 @@ func (this *radiusController) storeCache(key string, entry CacheEntry) {
 	if old := this.stateCache[key]; old != nil {
 
 		if sess, ok := old.(*Session); ok && sess.Context.Err() == nil {
-			sess.CancelContext()
+			sess.Terminate()
 		}
 
 		this.stateCache["mvctx:"+key+":"+uuid.NewString()] = old
@@ -403,11 +403,11 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	if sessTimeout := rfc2865.SessionTimeout_Get(resp); sessTimeout > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(sessTimeout))
 		sess.Context = ctx
-		sess.CancelContext = cancel
+		sess.Terminate = cancel
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 		sess.Context = ctx
-		sess.CancelContext = cancel
+		sess.Terminate = cancel
 	}
 
 	if idleTimeout := rfc2865.IdleTimeout_Get(resp); idleTimeout > 0 {
@@ -578,7 +578,7 @@ func (this *radiusController) reportAccounting() {
 
 		if sess.IdleTimeout > 0 && now.Sub(sess.LastActivity) > sess.IdleTimeout {
 
-			sess.CancelContext()
+			sess.Terminate()
 
 			wg.Add(1)
 
@@ -589,7 +589,7 @@ func (this *radiusController) reportAccounting() {
 
 				defer wg.Done()
 
-				sess.ContextWg.Wait()
+				sess.Wg.Wait()
 
 				if err := this.acctStopSession(ctx, sess); err != nil {
 					slog.Error("RADIUS: Error stopping session accounting",
@@ -668,7 +668,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 	}
 
 	if sess.Context.Err() == nil {
-		sess.CancelContext()
+		sess.Terminate()
 	}
 
 	slog.Info("RADIUS DAC: DM OK",

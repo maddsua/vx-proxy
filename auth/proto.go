@@ -38,19 +38,27 @@ type CacheEntry interface {
 }
 
 type Session struct {
-	Context       context.Context
-	CancelContext context.CancelFunc
-	ContextWg     sync.WaitGroup
 	ID            uuid.UUID
 	UserName      *string
 	ClientID      string
 	MaxDataRateRx int
 	MaxDataRateTx int
 	IdleTimeout   time.Duration
-	LastActivity  time.Time
-	LastActSync   time.Time
-	AcctRxBytes   atomic.Int64
-	AcctTxBytes   atomic.Int64
+
+	LastActivity time.Time
+	LastActSync  time.Time
+
+	AcctRxBytes atomic.Int64
+	AcctTxBytes atomic.Int64
+
+	//	Session context must by used by all consumers, such as read/write operations and dials
+	Context context.Context
+	//	Terminate is a conext cancel function that is used to terminated all data operations that belong to a session
+	Terminate context.CancelFunc
+
+	//	Session wait group can be 'locked' by consumers to prevent it from being erased while it's being in use
+	//	This isn't a memory safety mechanism, but rather a way to ensure that data accouting works right
+	Wg sync.WaitGroup
 }
 
 func (this *Session) EntryExpires() (time.Time, bool) {
