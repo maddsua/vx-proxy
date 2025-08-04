@@ -37,3 +37,10 @@ func (this *ReadAccounter) Read(p []byte) (n int, err error) {
 	this.TotalRead += int64(n)
 	return
 }
+
+func (this *ReadAccounter) Close() error {
+	if closer, ok := this.Reader.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
