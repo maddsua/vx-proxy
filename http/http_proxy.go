@@ -309,10 +309,10 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	body := utils.ReadAccounter{Reader: req.Body}
-	defer sess.AcctTxBytes.Add(body.TotalRead)
+	bodyReader := utils.ReadAccounter{Reader: req.Body}
+	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
 
-	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &body)
+	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &bodyReader)
 	if err != nil {
 		wrt.Header().Set("X-Via", "vx/forward")
 		wrt.WriteHeader(http.StatusBadRequest)
@@ -391,29 +391,20 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	wrt.WriteHeader(resp.StatusCode)
 
+	bodyWriter := utils.WriteAccounter{
+		Writer: &utils.FlushWriter{Writer: wrt},
+	}
+	defer sess.AcctRxBytes.Add(bodyWriter.TotalWrite)
+
 	//	this wonderful logic down here streams response body until
 	//	either all the data gets transferred OR the session context is cancelled
 
 	doneCh := make(chan bool, 1)
-	flushCh := make(<-chan time.Time)
-	var bodyFlusher http.Flusher
-
-	contentType := resp.Header.Get("Content-Type")
-	isStream := strings.HasPrefix(contentType, "text/event-stream")
-
-	if flusher, ok := wrt.(http.Flusher); ok && isStream {
-		flushCh = time.Tick(time.Second)
-		bodyFlusher = flusher
-	}
 
 	go func() {
 
-		defer func() {
-			doneCh <- true
-		}()
-
-		if written, err := io.Copy(wrt, resp.Body); err != nil {
-			slog.Debug("HTTP forward: Unable to copy body",
+		if _, err := io.Copy(&bodyWriter, resp.Body); err != nil {
+			slog.Debug("HTTP forward: Copy body failed",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
@@ -422,22 +413,16 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 				slog.String("username", *sess.UserName),
 				slog.String("host", forwardReq.Host),
 				slog.String("err", err.Error()))
-			return
-		} else if written > 0 {
-			sess.AcctRxBytes.Add(written)
 		}
 
+		doneCh <- true
 	}()
 
-	for {
-		select {
-		case <-flushCh:
-			bodyFlusher.Flush()
-		case <-doneCh:
-			return
-		case <-sess.Context.Done():
-			return
-		}
+	select {
+	case <-doneCh:
+		return
+	case <-sess.Context.Done():
+		return
 	}
 }
 
