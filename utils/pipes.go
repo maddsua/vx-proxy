@@ -26,7 +26,7 @@ type ConnectionPiper struct {
 	SpeedCapTx     int
 }
 
-func (this *ConnectionPiper) Pipe(ctx context.Context) error {
+func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 
 	txCtx, cancelTx := context.WithCancel(ctx)
 	rxCtx, cancelRx := context.WithCancel(ctx)
@@ -47,7 +47,10 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 		doneCh <- PipeConnection(rxCtx, this.ClientConn, this.RemoteConn, this.SpeedCapRx, this.TotalCounterRx)
 	}()
 
-	err := <-doneCh
+	select {
+	case err = <-doneCh:
+	case <-ctx.Done():
+	}
 
 	cancelRx()
 	cancelTx()
@@ -56,20 +59,11 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 	_ = this.ClientConn.SetReadDeadline(time.Unix(1, 0))
 
 	wg.Wait()
-
-	return err
+	return
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
 func PipeConnection(ctx context.Context, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) error {
-
-	if ctx == nil {
-		panic("context is nil")
-	} else if dst == nil {
-		panic("dst is nil")
-	} else if src == nil {
-		panic("src is nil")
-	}
 
 	const buffSize = 32 * 1024
 
