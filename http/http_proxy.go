@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -124,8 +125,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		this.ServeTunnel(conn, rw, sess, dstHost)
 
 	default:
-		//	todo: handle relay
-		wrt.WriteHeader(http.StatusMethodNotAllowed)
+		this.ServeForward(wrt, req, sess)
 	}
 }
 
@@ -173,7 +173,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 		headers.Set("Date", time.Now().In(time.UTC).Format(time.RFC1123))
 		headers.Set("Server", "vx/tunnel")
-		headers.Set("X-Destination", hostAddr)
+		headers.Set("X-Forwarded", fmt.Sprintf("to=%s", hostAddr))
 
 		if err := headers.Write(rw.Writer); err != nil {
 			return err
@@ -201,7 +201,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", hostAddr),
+			slog.String("host", hostAddr),
 			slog.String("err", err.Error()))
 
 		headers := http.Header{}
@@ -301,6 +301,85 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			slog.String("sid", sess.ID.String()),
 			slog.String("host", hostAddr),
 			slog.String("err", err.Error()))
+	}
+}
+
+func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, sess *auth.Session) {
+
+	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
+	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
+
+	//	todo: account sent bytes
+
+	wrt.Header().Set("X-Via", "vx/forward")
+
+	req, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, req.Body)
+	if err != nil {
+		wrt.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Debug("HTTP forward: Request rejected",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("host", req.Host),
+			slog.String("err", err.Error()))
+		wrt.WriteHeader(http.StatusBadGateway)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	slog.Debug("HTTP forward: Sent",
+		slog.String("nas_addr", nasIP.String()),
+		slog.Int("nas_port", nasPort),
+		slog.String("client_ip", clientIP.String()),
+		slog.String("client_id", sess.ID.String()),
+		slog.String("sid", sess.ID.String()),
+		slog.String("host", req.Host))
+
+	var headerAllowed = func(key string) bool {
+		switch key {
+		case "X-Via",
+			//	todo: handle content compression
+			"Accept-Encoding",
+			"TE":
+			return false
+		}
+		return true
+	}
+
+	for key, values := range resp.Header {
+		if headerAllowed(key) {
+			for _, val := range values {
+				wrt.Header().Set(key, val)
+			}
+		}
+	}
+
+	wrt.WriteHeader(resp.StatusCode)
+
+	//	todo: control context here
+
+	if written, err := io.Copy(wrt, resp.Body); err != nil {
+		slog.Debug("HTTP forward: Unable to copy body",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("sid", sess.ID.String()),
+			slog.String("username", *sess.UserName),
+			slog.String("host", req.Host),
+			slog.String("err", err.Error()))
+		return
+	} else if written > 0 {
+		sess.AcctRxBytes.Add(written)
 	}
 }
 

@@ -197,7 +197,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
-			slog.String("remote", string(dstAddr)),
+			slog.String("host", string(dstAddr)),
 			slog.String("err", err.Error()))
 
 		_ = writeReply(socksV5ErrHostUnreachable, dstAddr)
@@ -225,7 +225,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		slog.String("client_id", sess.ClientID),
 		slog.String("sid", sess.ID.String()),
 		slog.String("username", *sess.UserName),
-		slog.String("remote", string(dstAddr)))
+		slog.String("host", string(dstAddr)))
 
 	// add to a wait group to make sure session-stops account the full amount of traffix
 	sess.ContextWg.Add(1)
