@@ -375,21 +375,37 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	wrt.WriteHeader(resp.StatusCode)
 
-	//	todo: control context here
+	//	this wonderful logic down here streams response body until
+	//	either all the data gets transferred OR the session context is cancelled
 
-	if written, err := io.Copy(wrt, resp.Body); err != nil {
-		slog.Debug("HTTP forward: Unable to copy body",
-			slog.String("nas_addr", nasIP.String()),
-			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()),
-			slog.String("client_id", sess.ClientID),
-			slog.String("sid", sess.ID.String()),
-			slog.String("username", *sess.UserName),
-			slog.String("host", forwardReq.Host),
-			slog.String("err", err.Error()))
-		return
-	} else if written > 0 {
-		sess.AcctRxBytes.Add(written)
+	doneCh := make(chan bool, 1)
+
+	go func() {
+
+		defer func() {
+			doneCh <- true
+		}()
+
+		if written, err := io.Copy(wrt, resp.Body); err != nil {
+			slog.Debug("HTTP forward: Unable to copy body",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
+				slog.String("client_ip", clientIP.String()),
+				slog.String("client_id", sess.ClientID),
+				slog.String("sid", sess.ID.String()),
+				slog.String("username", *sess.UserName),
+				slog.String("host", forwardReq.Host),
+				slog.String("err", err.Error()))
+			return
+		} else if written > 0 {
+			sess.AcctRxBytes.Add(written)
+		}
+
+	}()
+
+	select {
+	case <-doneCh:
+	case <-sess.Context.Done():
 	}
 }
 
