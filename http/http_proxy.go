@@ -312,8 +312,6 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	body := utils.ReadAccounter{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(body.TotalRead)
 
-	//	todo: make sure that the body is actually used
-
 	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &body)
 	if err != nil {
 		wrt.Header().Set("X-Via", "vx/forward")
