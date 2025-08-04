@@ -312,6 +312,8 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	body := utils.ReadAccounter{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(body.TotalRead)
 
+	//	todo: make sure that the body is actually used
+
 	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &body)
 	if err != nil {
 		wrt.Header().Set("X-Via", "vx/forward")
@@ -347,6 +349,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	defer resp.Body.Close()
 
+	sess.AcctRxBytes.Add(int64(getResponseEstimatedSize(resp)))
 	sess.AcctTxBytes.Add(int64(getRequestEstimatedSize(forwardReq)))
 
 	slog.Debug("HTTP forward: Sent",
@@ -477,6 +480,27 @@ func getRequestEstimatedSize(req *http.Request) int {
 	total := len(req.Method) + len(req.RequestURI) + headerOverheadMagicNumber
 
 	for key, values := range req.Header {
+		for _, val := range values {
+			total += len(key) + len(val) + pixieDustMagicNumber
+		}
+	}
+
+	return total
+}
+
+// Returns approximate close-ish enough size of a request header.
+// It doesn't account for the request body itself
+func getResponseEstimatedSize(resp *http.Response) int {
+
+	if resp == nil {
+		return 0
+	}
+
+	const pixieDustMagicNumber = 7
+
+	total := len(resp.Proto) + len(resp.Status) + pixieDustMagicNumber
+
+	for key, values := range resp.Header {
 		for _, val := range values {
 			total += len(key) + len(val) + pixieDustMagicNumber
 		}
