@@ -312,9 +312,10 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	bodyReader := utils.ReadAccounter{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
 
+	wrt.Header().Set("X-Via", "vx/forward")
+
 	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &bodyReader)
 	if err != nil {
-		wrt.Header().Set("X-Via", "vx/forward")
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -331,7 +332,6 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 			slog.String("username", *sess.UserName),
 			slog.String("host", forwardReq.Host),
 			slog.String("upgrade", upgrade))
-		wrt.Header().Set("X-Via", "vx/forward")
 		wrt.WriteHeader(http.StatusNotImplemented)
 		return
 	}
@@ -339,12 +339,10 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	for key, values := range req.Header {
 		for _, val := range values {
 			switch http.CanonicalHeaderKey(key) {
-			case "Connection", "Upgrade":
+			case "X-Via", "Connection", "Upgrade":
 				continue
-			case "X-Via":
-				forwardReq.Header.Set(key, fmt.Sprintf("%s; vx/forward", val))
 			default:
-				forwardReq.Header.Set(key, val)
+				forwardReq.Header.Add(key, val)
 			}
 		}
 	}
@@ -360,6 +358,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 			slog.String("username", *sess.UserName),
 			slog.String("host", forwardReq.Host),
 			slog.String("err", err.Error()))
+		wrt.Header().Set("X-Via", "vx/forward")
 		wrt.WriteHeader(http.StatusBadGateway)
 		return
 	}
@@ -378,14 +377,15 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 		slog.String("host", forwardReq.Host))
 
 	for key, values := range resp.Header {
-
-		switch http.CanonicalHeaderKey(key) {
-		case "X-Via", "Transfer-Encoding", "TE":
-			continue
-		}
-
 		for _, val := range values {
-			wrt.Header().Set(key, val)
+			switch http.CanonicalHeaderKey(key) {
+			case "X-Via":
+				wrt.Header().Set(key, fmt.Sprintf("%s; vx/forward", val))
+			case "Transfer-Encoding", "TE":
+				continue
+			default:
+				wrt.Header().Add(key, val)
+			}
 		}
 	}
 
