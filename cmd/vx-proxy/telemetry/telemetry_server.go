@@ -8,10 +8,20 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maddsua/vx-proxy/utils"
 )
 
 type Config struct {
 	ListenAddr string `yaml:"listen_addr"`
+}
+
+func (this *Config) Validate() error {
+
+	if this.ListenAddr == "" {
+		return fmt.Errorf("listen_addr is missing")
+	}
+
+	return nil
 }
 
 func (this Config) ServiceID() string {
@@ -68,36 +78,26 @@ func (this *Telemetry) ListenAndServe() error {
 		})
 	})
 
-	addr, err := this.getAddr()
-	if err != nil {
-		return err
-	}
-
 	this.srv = &http.Server{
-		Addr:    addr,
+		Addr:    utils.StripLocalhost(this.ListenAddr),
 		Handler: mux,
 	}
 
 	return this.srv.ListenAndServe()
 }
 
-func (this *Telemetry) getAddr() (string, error) {
-
-	if this.Config.ListenAddr != "" {
-		return this.Config.ListenAddr, nil
-	}
-
-	return "", fmt.Errorf("listen addr is missing")
-}
-
 func (this *Telemetry) At() string {
 
-	addr, err := this.getAddr()
-	if err == nil {
-		return fmt.Sprintf("http://%s/public/status", addr)
+	if this.Config.ListenAddr == "" {
+		return ""
 	}
 
-	return ""
+	addr := this.Config.ListenAddr
+	if host, port, err := net.SplitHostPort(addr); err != nil || host == "" {
+		addr = net.JoinHostPort("localhost", port)
+	}
+
+	return fmt.Sprintf("http://%s/public/status", addr)
 }
 
 func (this *Telemetry) Close() error {

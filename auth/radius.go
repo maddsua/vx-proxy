@@ -97,7 +97,7 @@ func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 	}
 
 	var err error
-	if this.dacListener, err = net.ListenPacket("udp", this.dacServer.Addr); err != nil {
+	if this.dacListener, err = net.ListenPacket("udp", utils.StripLocalhost(this.dacServer.Addr)); err != nil {
 		return nil, err
 	}
 
