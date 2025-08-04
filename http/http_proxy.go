@@ -335,8 +335,10 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	for key, values := range req.Header {
 		for _, val := range values {
-			switch key {
-			case "X-Via", "Connection", "Upgrade":
+			switch http.CanonicalHeaderKey(key) {
+			case "Connection", "Upgrade":
+				continue
+			case "X-Via":
 				forwardReq.Header.Set(key, fmt.Sprintf("%s; vx/forward", val))
 			default:
 				forwardReq.Header.Set(key, val)
@@ -374,7 +376,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	for key, values := range resp.Header {
 
-		switch key {
+		switch http.CanonicalHeaderKey(key) {
 		case "X-Via", "Transfer-Encoding", "TE":
 			continue
 		}
