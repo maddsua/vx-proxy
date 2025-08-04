@@ -97,7 +97,7 @@ func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 	}
 
 	var err error
-	if this.dacListener, err = net.ListenPacket("udp", this.dacServer.Addr); err != nil {
+	if this.dacListener, err = net.ListenPacket("udp", utils.StripLocalhost(this.dacServer.Addr)); err != nil {
 		return nil, err
 	}
 
@@ -647,9 +647,12 @@ func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.
 func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req *radius.Request) {
 
 	sessID := SessionIdFromBytes(rfc2866.AcctSessionID_Get(req.Packet))
-	if sessID.Valid {
+	if !sessID.Valid {
 		slog.Error("RADIUS DAC: DM doesn't contain a valid session id",
 			slog.String("ip", req.RemoteAddr.(*net.UDPAddr).IP.String()))
+		resp := req.Response(radius.CodeDisconnectNAK)
+		rfc3576.ErrorCause_Set(resp, rfc3576.ErrorCause_Value_SessionContextNotFound)
+		wrt.Write(resp)
 		return
 	}
 
@@ -681,7 +684,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radius.Request) {
 
 	sessID := SessionIdFromBytes(rfc2866.AcctSessionID_Get(req.Packet))
-	if sessID.Valid {
+	if !sessID.Valid {
 		slog.Error("RADIUS DAC: CoA message doesn't contain a valid session id",
 			slog.String("dac_addr", req.RemoteAddr.(*net.UDPAddr).IP.String()))
 		return

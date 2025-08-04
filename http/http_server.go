@@ -15,8 +15,17 @@ type Config struct {
 	PortRange string `yaml:"port_range"`
 }
 
-func (this Config) ServiceID() string {
-	return "http"
+func (this *Config) Validate() error {
+
+	if this.PortRange == "" {
+		return fmt.Errorf("port_range is missing")
+	}
+
+	if _, err := utils.ParseRange(this.PortRange); err != nil {
+		return fmt.Errorf("port_range format invalid")
+	}
+
+	return nil
 }
 
 func (this Config) BindsPorts() []string {

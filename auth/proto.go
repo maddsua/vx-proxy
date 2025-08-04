@@ -81,13 +81,13 @@ func (this *CredentialsMiss) EntryExpires() (time.Time, bool) {
 
 var ErrUnauthorized = errors.New("Unauthorized")
 
-func SessionIdFromBytes(bytes []byte) uuid.NullUUID {
+func SessionIdFromBytes(val []byte) uuid.NullUUID {
 
-	if val, err := uuid.FromBytes(bytes); err == nil {
+	if val, err := uuid.FromBytes(val); err == nil {
 		return uuid.NullUUID{UUID: val, Valid: true}
 	}
 
-	if val, err := uuid.ParseBytes(bytes); err == nil {
+	if val, err := uuid.ParseBytes(val); err == nil {
 		return uuid.NullUUID{UUID: val, Valid: true}
 	}
 

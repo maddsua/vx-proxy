@@ -17,23 +17,26 @@ import (
 )
 
 type Porter interface {
-	ServiceID() string
 	//	Must return the list of required ports in the format of 'port/network', e.g. 1080/tcp
 	BindsPorts() []string
+}
+
+type Validator interface {
+	Validate() error
 }
 
 // Represents a port->service_id map
 type PortSet map[string]string
 
-func (this PortSet) Register(service Porter) error {
+func (this PortSet) Register(porter Porter, service string) error {
 
-	for _, port := range service.BindsPorts() {
+	for _, port := range porter.BindsPorts() {
 
 		if reservedBy, has := this[port]; has {
-			return fmt.Errorf("port %s already reserved by service '%s'", port, reservedBy)
+			return fmt.Errorf("port %s already reserved for service %s", port, reservedBy)
 		}
 
-		this[port] = service.ServiceID()
+		this[port] = service
 	}
 
 	return nil
@@ -55,7 +58,7 @@ func (this *AuthConfig) Validate(portSet PortSet) error {
 		return fmt.Errorf("radius: %s", err.Error())
 	}
 
-	if err := portSet.Register(this.Radius); err != nil {
+	if err := portSet.Register(this.Radius, "radius"); err != nil {
 		return err
 	}
 
@@ -85,12 +88,23 @@ type ServicesConfig struct {
 
 func (this *ServicesConfig) Validate(portSet PortSet) error {
 
-	stuctVal := reflect.ValueOf(*this)
+	structVal := reflect.ValueOf(*this)
+	structType := structVal.Type()
 
-	for idx := 0; idx < stuctVal.NumField(); idx++ {
-		if val, ok := stuctVal.Field(idx).Interface().(Porter); ok || val != nil {
-			if err := portSet.Register(val); err != nil {
-				return err
+	for idx := 0; idx < structVal.NumField(); idx++ {
+
+		val := structVal.Field(idx).Interface()
+		field := strings.ToLower(structType.Field(idx).Name)
+
+		if val, ok := val.(Porter); ok || val != nil {
+			if err := portSet.Register(val, field); err != nil {
+				return fmt.Errorf("%s: %v", field, err)
+			}
+		}
+
+		if val, ok := val.(Validator); ok {
+			if err := val.Validate(); err != nil {
+				return fmt.Errorf("%s: %v", field, err)
 			}
 		}
 	}
