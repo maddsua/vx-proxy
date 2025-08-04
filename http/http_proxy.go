@@ -468,10 +468,6 @@ func getRequestTargetHost(req *http.Request) string {
 // It doesn't account for the request body itself
 func getRequestEstimatedSize(req *http.Request) int {
 
-	if req == nil {
-		return 0
-	}
-
 	const headerOverheadMagicNumber = 16
 	const pixieDustMagicNumber = 4
 
@@ -489,10 +485,6 @@ func getRequestEstimatedSize(req *http.Request) int {
 // Returns approximate close-ish enough size of a request header.
 // It doesn't account for the request body itself
 func getResponseEstimatedSize(resp *http.Response) int {
-
-	if resp == nil {
-		return 0
-	}
 
 	const pixieDustMagicNumber = 7
 
