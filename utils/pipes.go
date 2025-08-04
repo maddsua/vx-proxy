@@ -26,7 +26,7 @@ type ConnectionPiper struct {
 	SpeedCapTx     int
 }
 
-func (this *ConnectionPiper) Pipe(ctx context.Context) error {
+func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 
 	txCtx, cancelTx := context.WithCancel(ctx)
 	rxCtx, cancelRx := context.WithCancel(ctx)
@@ -47,8 +47,6 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 		doneCh <- PipeConnection(rxCtx, this.ClientConn, this.RemoteConn, this.SpeedCapRx, this.TotalCounterRx)
 	}()
 
-	var err error
-
 	select {
 	case err = <-doneCh:
 	case <-ctx.Done():
@@ -61,8 +59,7 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) error {
 	_ = this.ClientConn.SetReadDeadline(time.Unix(1, 0))
 
 	wg.Wait()
-
-	return err
+	return
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
