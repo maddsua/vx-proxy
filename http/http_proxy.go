@@ -331,6 +331,9 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 			slog.String("username", *sess.UserName),
 			slog.String("host", forwardReq.Host),
 			slog.String("upgrade", upgrade))
+		wrt.Header().Set("X-Via", "vx/forward")
+		wrt.WriteHeader(http.StatusNotImplemented)
+		return
 	}
 
 	for key, values := range req.Header {
@@ -392,6 +395,16 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	//	either all the data gets transferred OR the session context is cancelled
 
 	doneCh := make(chan bool, 1)
+	flushCh := make(<-chan time.Time)
+	var bodyFlusher http.Flusher
+
+	contentType := resp.Header.Get("Content-Type")
+	isStream := strings.HasPrefix(contentType, "text/event-stream")
+
+	if flusher, ok := wrt.(http.Flusher); ok && isStream {
+		flushCh = time.Tick(time.Second)
+		bodyFlusher = flusher
+	}
 
 	go func() {
 
@@ -416,9 +429,15 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	}()
 
-	select {
-	case <-doneCh:
-	case <-sess.Context.Done():
+	for {
+		select {
+		case <-flushCh:
+			bodyFlusher.Flush()
+		case <-doneCh:
+			return
+		case <-sess.Context.Done():
+			return
+		}
 	}
 }
 
