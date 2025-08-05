@@ -524,7 +524,7 @@ func (this *radiusController) reportAccounting() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	var acctWg sync.WaitGroup
 
 	this.sessionMtx.Lock()
 	defer this.sessionMtx.Unlock()
@@ -553,7 +553,7 @@ func (this *radiusController) reportAccounting() {
 
 		if sess.Context.Err() != nil {
 
-			wg.Add(1)
+			acctWg.Add(1)
 
 			slog.Debug("RADIUS: Session done",
 				slog.String("sid", sess.ID.String()),
@@ -561,7 +561,9 @@ func (this *radiusController) reportAccounting() {
 
 			go func(sess *Session) {
 
-				defer wg.Done()
+				defer acctWg.Done()
+
+				sess.Wg.Wait()
 
 				if err := this.acctStopSession(ctx, sess); err != nil {
 					slog.Error("RADIUS: Failed to stop session accounting",
@@ -580,14 +582,14 @@ func (this *radiusController) reportAccounting() {
 
 			sess.Terminate()
 
-			wg.Add(1)
+			acctWg.Add(1)
 
 			slog.Debug("RADIUS: Session cancelled by idle timeout",
 				slog.String("sid", sess.ID.String()))
 
 			go func(sess *Session) {
 
-				defer wg.Done()
+				defer acctWg.Done()
 
 				sess.Wg.Wait()
 
@@ -609,11 +611,11 @@ func (this *radiusController) reportAccounting() {
 			slog.Debug("RADIUS: Session accounting update",
 				slog.String("sid", sess.ID.String()))
 
-			wg.Add(1)
+			acctWg.Add(1)
 
 			go func(sess *Session) {
 
-				defer wg.Done()
+				defer acctWg.Done()
 
 				if err := this.acctUpdateSession(ctx, sess); err != nil {
 					slog.Error("RADIUS: Failed to update session accounting",
@@ -627,7 +629,7 @@ func (this *radiusController) reportAccounting() {
 		}
 	}
 
-	wg.Wait()
+	acctWg.Wait()
 }
 
 func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.Request) {

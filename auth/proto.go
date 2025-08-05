@@ -56,8 +56,7 @@ type Session struct {
 	//	Terminate is a conext cancel function that is used to terminated all data operations that belong to a session
 	Terminate context.CancelFunc
 
-	//	Session wait group can be 'locked' by consumers to prevent it from being erased while it's being in use
-	//	This isn't a memory safety mechanism, but rather a way to ensure that data accouting works right
+	//	Session wait group signals that there are still i/o operations going on in the context of this session
 	Wg sync.WaitGroup
 }
 
