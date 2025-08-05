@@ -191,7 +191,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	}
 
 	dialer := net.Dialer{
-		LocalAddr: utils.GetReverseDialAddrTcp(conn),
+		LocalAddr: utils.DialAddrTcp(sess.FramedIP),
 		Resolver:  this.Dns,
 	}
 
@@ -305,6 +305,8 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 }
 
 func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, sess *auth.Session) {
+
+	//	todo: set client outbound addr
 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())

@@ -8,16 +8,10 @@ import (
 	"strings"
 )
 
-func GetReverseDialAddrTcp(conn net.Conn) *net.TCPAddr {
-
-	if conn, ok := conn.(*net.TCPConn); ok {
-		if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
-			if !addr.IP.IsLoopback() {
-				return &net.TCPAddr{IP: addr.IP}
-			}
-		}
+func DialAddrTcp(addr net.IP) net.Addr {
+	if addr != nil && !addr.IsLoopback() {
+		return &net.TCPAddr{IP: addr}
 	}
-
 	return nil
 }
 

@@ -187,7 +187,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 	}
 
 	dialer := net.Dialer{
-		LocalAddr: utils.GetReverseDialAddrTcp(conn),
+		LocalAddr: utils.DialAddrTcp(sess.FramedIP),
 		Resolver:  this.Dns,
 	}
 
