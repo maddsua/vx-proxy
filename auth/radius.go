@@ -402,12 +402,27 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		}
 	}
 
+	//	todo: cache utils.LocalAddrIsDialable calls
+
 	if val := rfc2865.FramedIPAddress_Get(resp); val != nil {
-		//	todo: check
-		sess.FramedIP = val
+
+		if err := utils.LocalAddrIsDialable(val); err != nil {
+			slog.Warn("Auth: RADIUS: FramedIPv6Address",
+				slog.String("addr", val.String()),
+				slog.String("err", err.Error()))
+		} else {
+			sess.FramedIP = val
+		}
+
 	} else if val := rfc6911.FramedIPv6Address_Get(resp); val != nil {
-		//	todo: check
-		sess.FramedIP = val
+
+		if err := utils.LocalAddrIsDialable(val); err != nil {
+			slog.Warn("Auth: RADIUS: FramedIPv6Address",
+				slog.String("addr", val.String()),
+				slog.String("err", err.Error()))
+		} else {
+			sess.FramedIP = val
+		}
 	}
 
 	if sessTimeout := rfc2865.SessionTimeout_Get(resp); sessTimeout > 0 {
