@@ -41,17 +41,25 @@ func (this *RadiusConfig) Validate() error {
 	utils.ExpandEnv(&this.Secret)
 
 	if this.AuthAddr == "" {
-		return errors.New("invalid opt: AuthAddr is empty")
-	} else if this.AcctAddr == "" {
+		return errors.New("auth_addr is empty")
+	} else if !utils.NetAddrFormatValid(this.AuthAddr) {
+		return errors.New("auth_addr format invalid")
+	}
+
+	if this.AcctAddr == "" {
 		this.AcctAddr = this.AuthAddr
+	} else if !utils.NetAddrFormatValid(this.AcctAddr) {
+		return errors.New("acct_addr format invalid")
 	}
 
 	if this.Secret == "" {
-		return errors.New("invalid opt: Secret is empty")
+		return errors.New("secret is empty")
 	}
 
 	if this.ListenDAC == "" {
 		this.ListenDAC = ":3799"
+	} else if !utils.NetAddrFormatValid(this.ListenDAC) {
+		return errors.New("listen_dac format invalid")
 	}
 
 	return nil
