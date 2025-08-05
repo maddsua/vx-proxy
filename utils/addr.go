@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func DialAddrTcp(addr net.IP) net.Addr {
+func GetTcpDialAddr(addr net.IP) net.Addr {
 	if addr != nil && !addr.IsLoopback() {
 		return &net.TCPAddr{IP: addr}
 	}
