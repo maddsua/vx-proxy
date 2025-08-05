@@ -112,6 +112,13 @@ func StripLocalhost(addr string) string {
 }
 
 func NetAddrFormatValid(addr string) bool {
-	_, _, err := net.SplitHostPort(addr)
+
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+
+	_, err = strconv.Atoi(port)
+
 	return err == nil
 }
