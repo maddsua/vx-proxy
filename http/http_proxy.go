@@ -306,8 +306,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, sess *auth.Session) {
 
-	//	todo: set client outbound addr
-
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
@@ -349,7 +347,8 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(forwardReq)
+	client := framedClient(sess, this.Dns)
+	resp, err := client.Do(forwardReq)
 	if err != nil {
 		slog.Debug("HTTP forward: Request rejected",
 			slog.String("nas_addr", nasIP.String()),
@@ -532,4 +531,35 @@ func getResponseEstimatedSize(resp *http.Response) int {
 	}
 
 	return total
+}
+
+func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
+
+	if sess.FramedHttpClient == nil {
+
+		if sess.FramedIP == nil {
+			return http.DefaultClient
+		}
+
+		dialer := net.Dialer{
+			LocalAddr: utils.DialAddrTcp(sess.FramedIP),
+			Resolver:  dns,
+
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+
+		sess.FramedHttpClient = &http.Client{
+			Transport: &http.Transport{
+				DialContext:           dialer.DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+		}
+	}
+
+	return sess.FramedHttpClient
 }

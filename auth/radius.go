@@ -404,14 +404,14 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 	//	todo: cache utils.LocalAddrIsDialable calls
 
-	if val := rfc2865.FramedIPAddress_Get(resp); val != nil {
+	if addr := rfc2865.FramedIPAddress_Get(resp); addr != nil {
 
-		if err := utils.LocalAddrIsDialable(val); err != nil {
+		if err := utils.LocalAddrIsDialable(addr); err != nil {
 			slog.Warn("Auth: RADIUS: FramedIPv6Address",
-				slog.String("addr", val.String()),
+				slog.String("addr", addr.String()),
 				slog.String("err", err.Error()))
 		} else {
-			sess.FramedIP = val
+			sess.FramedIP = addr
 		}
 
 	} else if val := rfc6911.FramedIPv6Address_Get(resp); val != nil {
@@ -421,7 +421,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 				slog.String("addr", val.String()),
 				slog.String("err", err.Error()))
 		} else {
-			sess.FramedIP = val
+			sess.FramedIP = addr
 		}
 	}
 

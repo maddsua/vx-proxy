@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,7 +46,11 @@ type Session struct {
 	MaxDataRateTx int
 	IdleTimeout   time.Duration
 
+	//	An outbound IP assigned to this session
 	FramedIP net.IP
+
+	//	An http client to be used by the client
+	FramedHttpClient *http.Client
 
 	LastActivity time.Time
 	LastActSync  time.Time
