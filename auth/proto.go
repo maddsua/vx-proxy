@@ -45,6 +45,8 @@ type Session struct {
 	MaxDataRateTx int
 	IdleTimeout   time.Duration
 
+	FramedIP net.IP
+
 	LastActivity time.Time
 	LastActSync  time.Time
 

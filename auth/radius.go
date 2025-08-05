@@ -23,6 +23,7 @@ import (
 	"github.com/maddsua/layeh-radius/rfc4372"
 	"github.com/maddsua/layeh-radius/rfc4679"
 	"github.com/maddsua/layeh-radius/rfc5580"
+	"github.com/maddsua/layeh-radius/rfc6911"
 	"github.com/maddsua/vx-proxy/utils"
 )
 
@@ -388,6 +389,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		ClientID:     "<nil>",
 		LastActivity: time.Now(),
 		LastActSync:  time.Now(),
+		FramedIP:     auth.NasAddr,
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
@@ -398,6 +400,14 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		} else if uid, err := ParseTextID(string(val)); err == nil {
 			sess.ClientID = uid
 		}
+	}
+
+	if val := rfc2865.FramedIPAddress_Get(resp); val != nil {
+		//	todo: check
+		sess.FramedIP = val
+	} else if val := rfc6911.FramedIPv6Address_Get(resp); val != nil {
+		//	todo: check
+		sess.FramedIP = val
 	}
 
 	if sessTimeout := rfc2865.SessionTimeout_Get(resp); sessTimeout > 0 {
