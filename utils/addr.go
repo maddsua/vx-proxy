@@ -110,17 +110,39 @@ func NetAddrFormatValid(addr string) bool {
 	return err == nil
 }
 
-// Checks whether a local addr is available and can be used in dial operations
-func LocalAddrIsDialable(addr net.IP) error {
+type AddrContainer interface {
+	Contains(val net.IP) bool
+}
 
-	const discardPort = 9
+// I am pretty much making this up;
+// just pretend that it was written by an LLM
+type AddrEqualer interface {
+	Equal(val net.IP) bool
+}
 
-	conn, err := net.DialUDP("udp", &net.UDPAddr{IP: addr}, &net.UDPAddr{IP: addr, Port: discardPort})
+// Reports whether or not an address is assigned to the current host
+func AddrAssigned(addr net.IP) (bool, error) {
+
+	table, err := net.InterfaceAddrs()
 	if err != nil {
-		return errors.Unwrap(errors.Unwrap(err))
+		return false, err
 	}
 
-	_ = conn.Close()
+	for _, val := range table {
 
-	return nil
+		switch val := val.(type) {
+		case AddrContainer:
+			if val.Contains(addr) {
+				return true, nil
+			}
+		case AddrEqualer:
+			if val.Equal(addr) {
+				return true, nil
+			}
+		default:
+			return false, fmt.Errorf("unexpected interface type: %T", val)
+		}
+	}
+
+	return false, nil
 }
