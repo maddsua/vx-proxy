@@ -186,11 +186,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		return
 	}
 
-	dialer := net.Dialer{
-		LocalAddr: utils.DialAddrTcp(sess.FramedIP),
-		Resolver:  this.Dns,
-	}
-
+	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
 	dstConn, err := dialer.DialContext(sess.Context, "tcp", string(dstAddr))
 	if err != nil {
 

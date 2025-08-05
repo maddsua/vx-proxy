@@ -190,11 +190,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return rw.Writer.Flush()
 	}
 
-	dialer := net.Dialer{
-		LocalAddr: utils.DialAddrTcp(sess.FramedIP),
-		Resolver:  this.Dns,
-	}
-
+	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
 	dstConn, err := dialer.DialContext(sess.Context, "tcp", hostAddr)
 	if err != nil {
 
@@ -541,13 +537,7 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 			return http.DefaultClient
 		}
 
-		dialer := net.Dialer{
-			LocalAddr: utils.DialAddrTcp(sess.FramedIP),
-			Resolver:  dns,
-
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}
+		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
 
 		sess.FramedHttpClient = &http.Client{
 			Transport: &http.Transport{
