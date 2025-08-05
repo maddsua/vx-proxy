@@ -109,3 +109,18 @@ func NetAddrFormatValid(addr string) bool {
 	_, _, err := net.SplitHostPort(addr)
 	return err == nil
 }
+
+// Checks whether a local addr is available and can be used in dial operations
+func LocalAddrIsDialable(addr net.IP) error {
+
+	const discardPort = 9
+
+	conn, err := net.DialUDP("udp", &net.UDPAddr{IP: addr}, &net.UDPAddr{IP: addr, Port: discardPort})
+	if err != nil {
+		return errors.Unwrap(errors.Unwrap(err))
+	}
+
+	_ = conn.Close()
+
+	return nil
+}
