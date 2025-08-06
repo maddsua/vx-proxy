@@ -116,9 +116,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	//	lock session wg
-	sess.Wg.Add(1)
-	defer sess.Wg.Done()
+	sess.TrackConn()
+	defer sess.ConnDone()
 
 	cmd, err := readSocksV5Cmd(conn)
 	if err != nil {
@@ -187,7 +186,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 	}
 
 	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
-	dstConn, err := dialer.DialContext(sess.Context, "tcp", string(dstAddr))
+	dstConn, err := dialer.DialContext(sess.Context(), "tcp", string(dstAddr))
 	if err != nil {
 
 		slog.Debug("SOCKSv5: Connect: Unable to dial destination",
@@ -239,7 +238,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		SpeedCapTx: sess.MaxDataRateTx,
 	}
 
-	if err := piper.Pipe(sess.Context); err != nil {
+	if err := piper.Pipe(sess.Context()); err != nil {
 		slog.Debug("SOCKSv5: Connect: Broken pipe",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
@@ -429,7 +428,7 @@ func (this *socksV5PasswordAuthenticator) Type() string {
 
 func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn net.Conn) (*auth.Session, error) {
 
-	var readCredentials = func(reader io.Reader) (*auth.BasicCredentials, error) {
+	var readCredentials = func(reader io.Reader) (*auth.UserPassword, error) {
 
 		buff, err := utils.ReadBuffN(reader, 2)
 		if err != nil {
@@ -459,7 +458,7 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 			}
 		}
 
-		return &auth.BasicCredentials{
+		return &auth.UserPassword{
 			Username: string(unamePlus[:int(ulen)]),
 			Password: password,
 		}, nil
@@ -479,11 +478,11 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 	clientIP, _, _ := utils.GetAddrPort(conn.RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
-	sess, err := this.Controller.WithPassword(ctx, auth.PasswordProxyAuth{
-		BasicCredentials: *creds,
-		ClientIP:         clientIP,
-		NasAddr:          nasIP,
-		NasPort:          nasPort,
+	sess, err := this.Controller.WithPassword(ctx, auth.PasswordAuth{
+		UserPassword: *creds,
+		ClientIP:     clientIP,
+		NasAddr:      nasIP,
+		NasPort:      nasPort,
 	})
 
 	switch err {
