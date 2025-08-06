@@ -305,7 +305,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	bodyReader := utils.ReadAccounter{Reader: req.Body}
+	bodyReader := BodyReader{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
 
 	wrt.Header().Del("Server")
@@ -387,9 +387,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	wrt.WriteHeader(resp.StatusCode)
 
-	bodyWriter := utils.WriteAccounter{
-		Writer: &utils.FlushWriter{Writer: wrt},
-	}
+	bodyWriter := BodyWriter{Writer: wrt}
 	defer sess.AcctRxBytes.Add(bodyWriter.TotalWrite)
 
 	//	this wonderful logic down here streams response body until
