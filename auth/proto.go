@@ -52,8 +52,8 @@ type Session struct {
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
 
-	LastActivity time.Time
-	LastActSync  time.Time
+	lastActivity time.Time
+	lastUpdated  time.Time
 
 	AcctRxBytes atomic.Int64
 	AcctTxBytes atomic.Int64
@@ -65,6 +65,19 @@ type Session struct {
 
 	//	Session wait group signals that there are still i/o operations going on in the context of this session
 	Wg sync.WaitGroup
+}
+
+func (this *Session) BumpActive() {
+	this.lastActivity = time.Now()
+}
+
+func (this *Session) IsIdle() bool {
+
+	if this.IdleTimeout > 0 || !this.lastActivity.IsZero() {
+		return time.Since(this.lastActivity) > this.IdleTimeout
+	}
+
+	return false
 }
 
 func (this *Session) EntryExpires() (time.Time, bool) {

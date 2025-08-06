@@ -237,6 +237,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 	if has && sess == nil {
 		return nil, ErrUnauthorized
 	} else if sess != nil {
+		sess.BumpActive()
 		return sess, nil
 	}
 
@@ -395,8 +396,8 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		ID:           sessUuid,
 		UserName:     &auth.Username,
 		ClientID:     "<nil>",
-		LastActivity: time.Now(),
-		LastActSync:  time.Now(),
+		lastActivity: time.Now(),
+		lastUpdated:  time.Now(),
 		FramedIP:     auth.NasAddr,
 	}
 
@@ -608,7 +609,7 @@ func (this *radiusController) reportAccounting() {
 			continue
 		}
 
-		if sess.IdleTimeout > 0 && now.Sub(sess.LastActivity) > sess.IdleTimeout {
+		if sess.IsIdle() {
 
 			sess.Terminate()
 
@@ -637,7 +638,7 @@ func (this *radiusController) reportAccounting() {
 			continue
 		}
 
-		if sess.LastActSync.Before(syncActivityAfter) {
+		if sess.lastUpdated.Before(syncActivityAfter) {
 
 			slog.Debug("RADIUS: Session accounting update",
 				slog.String("sid", sess.ID.String()))
@@ -656,7 +657,7 @@ func (this *radiusController) reportAccounting() {
 
 			}(sess)
 
-			sess.LastActSync = now
+			sess.lastUpdated = now
 		}
 	}
 
