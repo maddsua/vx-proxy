@@ -23,6 +23,7 @@ import (
 	"github.com/maddsua/layeh-radius/rfc4372"
 	"github.com/maddsua/layeh-radius/rfc4679"
 	"github.com/maddsua/layeh-radius/rfc5580"
+	"github.com/maddsua/layeh-radius/rfc6911"
 	"github.com/maddsua/vx-proxy/utils"
 )
 
@@ -396,6 +397,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		ClientID:     "<nil>",
 		LastActivity: time.Now(),
 		LastActSync:  time.Now(),
+		FramedIP:     auth.NasAddr,
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
@@ -405,6 +407,25 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 			sess.ClientID = uid.String()
 		} else if uid, err := ParseTextID(string(val)); err == nil {
 			sess.ClientID = uid
+		}
+	}
+
+	if addr := rfc2865.FramedIPAddress_Get(resp); addr != nil {
+
+		if has, _ := utils.AddrAssigned(addr); !has {
+			slog.Warn("Auth: RADIUS: FramedIPAddress not assigned to the host",
+				slog.String("addr", addr.String()))
+		} else {
+			sess.FramedIP = addr
+		}
+
+	} else if val := rfc6911.FramedIPv6Address_Get(resp); val != nil {
+
+		if has, _ := utils.AddrAssigned(addr); !has {
+			slog.Warn("Auth: RADIUS: FramedIPv6Address not assigned to the host",
+				slog.String("addr", addr.String()))
+		} else {
+			sess.FramedIP = addr
 		}
 	}
 
@@ -565,11 +586,12 @@ func (this *radiusController) reportAccounting() {
 
 			slog.Debug("RADIUS: Session done",
 				slog.String("sid", sess.ID.String()),
-				slog.String("reason", sess.Context.Err().Error()))
+				slog.String("reason", "ttl"))
 
 			go func(sess *Session) {
 
 				defer acctWg.Done()
+				defer sess.closeDependencies()
 
 				sess.Wg.Wait()
 
@@ -598,6 +620,7 @@ func (this *radiusController) reportAccounting() {
 			go func(sess *Session) {
 
 				defer acctWg.Done()
+				defer sess.closeDependencies()
 
 				sess.Wg.Wait()
 

@@ -8,16 +8,10 @@ import (
 	"strings"
 )
 
-func GetReverseDialAddrTcp(conn net.Conn) *net.TCPAddr {
-
-	if conn, ok := conn.(*net.TCPConn); ok {
-		if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
-			if !addr.IP.IsLoopback() {
-				return &net.TCPAddr{IP: addr.IP}
-			}
-		}
+func GetTcpDialAddr(addr net.IP) net.Addr {
+	if addr != nil && !addr.IsLoopback() {
+		return &net.TCPAddr{IP: addr}
 	}
-
 	return nil
 }
 
@@ -121,4 +115,41 @@ func NetAddrFormatValid(addr string) bool {
 	_, err = strconv.Atoi(port)
 
 	return err == nil
+}
+
+type AddrContainer interface {
+	Contains(val net.IP) bool
+}
+
+// I am pretty much making this up;
+// just pretend that it was written by an LLM
+type AddrEqualer interface {
+	Equal(val net.IP) bool
+}
+
+// Reports whether or not an address is assigned to the current host
+func AddrAssigned(addr net.IP) (bool, error) {
+
+	table, err := net.InterfaceAddrs()
+	if err != nil {
+		return false, err
+	}
+
+	for _, val := range table {
+
+		switch val := val.(type) {
+		case AddrContainer:
+			if val.Contains(addr) {
+				return true, nil
+			}
+		case AddrEqualer:
+			if val.Equal(addr) {
+				return true, nil
+			}
+		default:
+			return false, fmt.Errorf("unexpected interface type: %T", val)
+		}
+	}
+
+	return false, nil
 }

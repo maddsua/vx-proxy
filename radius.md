@@ -26,6 +26,8 @@ Expected **Access-Accept**:
 | Attribute | Role | Format | Example |
 | --- | --- | --- | --- |
 | rfc2866.AcctSessionID | Accounting session UUID | `binary` | 28c74360-afe7-4990-8d43-e823a18a02c6 |
+| rfc2865.FramedIPAddress | IP address to configure for a session | `binary` | 1.2.3.4 |
+| rfc6911.FramedIPv6Address | IPv6 address to configure for a session | `binary` | 2606:4700:4700::1001 |
 | rfc4372.ChargeableUserIdentity | Accountable user ID | `text/binary` | maddsua |
 | rfc2865.SessionTimeout | max. session duration | `duration seconds` | 3600 |
 | rfc2865.IdleTimeout | max. session idle time | `duration seconds` | 600 |

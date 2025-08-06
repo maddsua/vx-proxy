@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,6 +46,12 @@ type Session struct {
 	MaxDataRateTx int
 	IdleTimeout   time.Duration
 
+	//	An outbound IP assigned to this session
+	FramedIP net.IP
+
+	//	An http client to be used by the client
+	FramedHttpClient *http.Client
+
 	LastActivity time.Time
 	LastActSync  time.Time
 
@@ -62,6 +69,14 @@ type Session struct {
 
 func (this *Session) EntryExpires() (time.Time, bool) {
 	return this.Context.Deadline()
+}
+
+func (this *Session) closeDependencies() {
+	if this.FramedHttpClient != nil {
+		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
 }
 
 type CredentialsMiss struct {
