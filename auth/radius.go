@@ -90,13 +90,14 @@ func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	this := &radiusController{
-		authAddr:         cfg.AuthAddr,
-		acctAddr:         cfg.AcctAddr,
-		secret:           []byte(cfg.Secret),
-		accountingTicker: time.NewTicker(10 * time.Second),
-		ctx:              ctx,
-		cancelCtx:        cancel,
-		stateCache:       map[string]CacheEntry{},
+		authAddr:  cfg.AuthAddr,
+		acctAddr:  cfg.AcctAddr,
+		secret:    []byte(cfg.Secret),
+		ctx:       ctx,
+		cancelCtx: cancel,
+
+		state:         sessionState{entries: map[string]expirer{}},
+		refreshTicker: time.NewTicker(10 * time.Second),
 	}
 
 	this.dacServer = &radius.PacketServer{
@@ -111,7 +112,7 @@ func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 	}
 
 	go this.asyncDac()
-	go this.asyncAcct()
+	go this.asyncRefresh()
 
 	return this, nil
 }
@@ -121,13 +122,12 @@ type radiusController struct {
 	acctAddr string
 	secret   []byte
 
-	stateCache map[string]CacheEntry
-	sessionMtx sync.Mutex
-
-	accountingTicker *time.Ticker
+	state         sessionState
+	refreshTicker *time.Ticker
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
+	wg        sync.WaitGroup
 
 	dacServer   *radius.PacketServer
 	dacListener net.PacketConn
@@ -147,37 +147,40 @@ func (this *radiusController) Shutdown(ctx context.Context) error {
 
 	//	 cancel internal contexts
 	this.cancelCtx()
-	this.accountingTicker.Stop()
+	this.refreshTicker.Stop()
 	this.dacServer.Shutdown(ctx)
 	this.dacListener.Close()
 
-	//	wait for ticker routine to be done
-	this.sessionMtx.Lock()
-	defer this.sessionMtx.Unlock()
+	this.wg.Wait()
 
+	var terminateSession = func(wg *sync.WaitGroup, sess *Session) {
+
+		defer wg.Done()
+
+		sess.Terminate()
+		sess.WaitDone()
+		sess.closeDependencies()
+
+		if err := this.acctStopSession(ctx, sess); err != nil {
+			slog.Error("Failed to write terminated session accounting data",
+				slog.String("sid", sess.ID.String()),
+				slog.String("err", err.Error()))
+		}
+	}
+
+	//	report all active sessions accounting and terminate them
 	if ctx.Err() == nil {
 
-		//	report all active sessions as stopped
 		var wg sync.WaitGroup
 
-		for _, entry := range this.stateCache {
+		for _, entry := range this.state.Entries() {
 
-			sess, ok := entry.(*Session)
-			if !ok {
-				continue
-			}
-
-			if sess.Context != nil {
-
+			if sess, ok := entry.Val.(*Session); ok {
 				wg.Add(1)
-
-				go func() {
-					defer wg.Done()
-					if err := this.acctStopSession(ctx, sess); err != nil {
-						fmt.Println(err)
-					}
-				}()
+				go terminateSession(&wg, sess)
 			}
+
+			this.state.Del(entry.Key)
 		}
 
 		wg.Wait()
@@ -187,20 +190,122 @@ func (this *radiusController) Shutdown(ctx context.Context) error {
 }
 
 func (this *radiusController) asyncDac() {
+
+	this.wg.Add(1)
+	defer this.wg.Done()
+
 	if err := this.dacServer.Serve(this.dacListener); err != nil && this.ctx.Err() == nil {
 		slog.Error("RADIUS: DAC: Server error",
 			slog.String("err", err.Error()))
 	}
 }
 
-func (this *radiusController) asyncAcct() {
+func (this *radiusController) asyncRefresh() {
+
+	this.wg.Add(1)
+	defer this.wg.Done()
+
+	const updateInterval = time.Minute
+
+	var refreshSession = func(ctx context.Context, wg *sync.WaitGroup, stateKey string, sess *Session) {
+
+		defer wg.Done()
+
+		switch {
+
+		case sess.IsCancelled():
+
+			slog.Debug("RADIUS: Session terminated",
+				slog.String("sid", sess.ID.String()),
+				slog.String("reason", "ttl"))
+
+			sess.WaitDone()
+			sess.closeDependencies()
+
+			if err := this.acctStopSession(ctx, sess); err != nil {
+				slog.Error("RADIUS: Error stopping session accounting",
+					slog.String("sid", sess.ID.String()),
+					slog.String("stop_reason", "cancelled"),
+					slog.String("err", err.Error()))
+			}
+
+			this.state.Del(stateKey)
+
+		case sess.IsIdle():
+
+			slog.Debug("RADIUS: Session terminated",
+				slog.String("sid", sess.ID.String()),
+				slog.String("reason", "idle"))
+
+			sess.Terminate()
+			sess.WaitDone()
+			sess.closeDependencies()
+
+			if err := this.acctStopSession(ctx, sess); err != nil {
+				slog.Error("RADIUS: Error stopping session accounting",
+					slog.String("sid", sess.ID.String()),
+					slog.String("stop_reason", "idle"),
+					slog.String("err", err.Error()))
+			}
+
+			this.state.Del(stateKey)
+
+		case time.Since(sess.lastUpdated) > updateInterval:
+
+			slog.Debug("RADIUS: Session accounting update",
+				slog.String("sid", sess.ID.String()))
+
+			if err := this.acctUpdateSession(ctx, sess); err != nil {
+				slog.Error("RADIUS: Failed to update session accounting",
+					slog.String("err", err.Error()),
+					slog.String("sid", sess.ID.String()))
+			} else {
+				sess.lastUpdated = time.Now()
+			}
+		}
+	}
+
+	var iterate = func() {
+
+		ctx, cancel := context.WithTimeout(this.ctx, time.Minute)
+		defer cancel()
+
+		var wg sync.WaitGroup
+
+		for _, entry := range this.state.Entries() {
+
+			switch val := entry.Val.(type) {
+
+			case *Session:
+				wg.Add(1)
+				go refreshSession(ctx, &wg, entry.Key, val)
+
+			case *CredentialsMiss:
+				if val.Expired() {
+					slog.Debug("RADIUS: Credentials cache miss reset",
+						slog.String("username", val.Username))
+					this.state.Del(entry.Key)
+				}
+
+			default:
+				if entry.Val.Expired() {
+					slog.Warn("RADIUS: Expired key removed",
+						slog.String("key", entry.Key),
+						slog.String("type", fmt.Sprintf("%T", entry.Val)))
+					this.state.Del(entry.Key)
+				}
+			}
+		}
+
+		wg.Wait()
+	}
 
 	done := this.ctx.Done()
 
 	for {
 		select {
-		case <-this.accountingTicker.C:
-			this.reportAccounting()
+		case <-this.refreshTicker.C:
+			iterate()
 		case <-done:
 			return
 		}
@@ -215,7 +320,7 @@ func (this *radiusController) exchangeAcct(ctx context.Context, packet *radius.P
 	return radius.Exchange(ctx, packet, this.acctAddr)
 }
 
-func (this *radiusController) WithPassword(ctx context.Context, auth PasswordProxyAuth) (*Session, error) {
+func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAuth) (*Session, error) {
 
 	if auth.Username = strings.TrimSpace(auth.Username); auth.Username == "" {
 		return nil, errors.New("invalid credentials format: username is empty")
@@ -233,8 +338,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 	hasher.Write([]byte(strconv.Itoa(auth.NasPort)))
 	sessKey := "pwa_sha:" + hex.EncodeToString(hasher.Sum(nil))
 
-	sess, has := this.lookupCachedSession(sessKey)
-	if has && sess == nil {
+	if sess, has := this.state.LoadSession(sessKey); has && sess == nil {
 		return nil, ErrUnauthorized
 	} else if sess != nil {
 		sess.BumpActive()
@@ -245,7 +349,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 	if err != nil {
 
 		if err == ErrUnauthorized {
-			this.storeCache(sessKey, &CredentialsMiss{
+			this.state.Store(sessKey, &CredentialsMiss{
 				Username: auth.Username,
 				Expires:  time.Now().Add(time.Minute),
 			})
@@ -264,78 +368,12 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordPro
 		slog.String("sid", sess.ID.String()),
 		slog.String("user", sess.ClientID))
 
-	this.storeCache(sessKey, sess)
+	this.state.Store(sessKey, sess)
+
 	return sess, nil
 }
 
-func (this *radiusController) lookupCachedSession(key string) (*Session, bool) {
-
-	this.sessionMtx.Lock()
-	defer this.sessionMtx.Unlock()
-
-	entry := this.stateCache[key]
-
-	if miss, ok := entry.(*CredentialsMiss); ok {
-		if miss.Expires.After(time.Now()) {
-			return nil, true
-		}
-	} else if sess, ok := entry.(*Session); ok {
-		if sess.Context.Err() == nil {
-			return sess, true
-		}
-	}
-
-	return nil, false
-}
-
-func (this *radiusController) lookupCachedSessionByID(sid uuid.UUID) *Session {
-
-	this.sessionMtx.Lock()
-	defer this.sessionMtx.Unlock()
-
-	for _, entry := range this.stateCache {
-
-		sess, ok := entry.(*Session)
-		if !ok {
-			continue
-		}
-
-		if sess.ID == sid {
-			return sess
-		}
-	}
-
-	return nil
-}
-
-func (this *radiusController) storeCache(key string, entry CacheEntry) {
-
-	if miss, ok := entry.(*CredentialsMiss); ok {
-		if miss.Expires.IsZero() {
-			panic(fmt.Sprintf("creds miss expiry time is zero on key '%s'", key))
-		}
-	} else if sess, ok := entry.(*Session); ok {
-		if sess.Context == nil || sess.Terminate == nil {
-			panic(fmt.Sprintf("session context or cacncel function are invalid on key '%s'", key))
-		}
-	}
-
-	this.sessionMtx.Lock()
-	defer this.sessionMtx.Unlock()
-
-	if old := this.stateCache[key]; old != nil {
-
-		if sess, ok := old.(*Session); ok && sess.Context.Err() == nil {
-			sess.Terminate()
-		}
-
-		this.stateCache["mvctx:"+key+":"+uuid.NewString()] = old
-	}
-
-	this.stateCache[key] = entry
-}
-
-func (this *radiusController) authRequestAccess(ctx context.Context, auth PasswordProxyAuth) (*Session, error) {
+func (this *radiusController) authRequestAccess(ctx context.Context, auth PasswordAuth) (*Session, error) {
 
 	defer this.errorRate.Add()
 
@@ -431,13 +469,9 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	}
 
 	if sessTimeout := rfc2865.SessionTimeout_Get(resp); sessTimeout > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(sessTimeout))
-		sess.Context = ctx
-		sess.Terminate = cancel
+		sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), time.Second*time.Duration(sessTimeout))
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		sess.Context = ctx
-		sess.Terminate = cancel
+		sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), time.Hour)
 	}
 
 	if idleTimeout := rfc2865.IdleTimeout_Get(resp); idleTimeout > 0 {
@@ -549,121 +583,6 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 	return nil
 }
 
-func (this *radiusController) reportAccounting() {
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	var acctWg sync.WaitGroup
-
-	this.sessionMtx.Lock()
-	defer this.sessionMtx.Unlock()
-
-	now := time.Now()
-	syncActivityAfter := now.Add(-time.Minute)
-
-	for key, entry := range this.stateCache {
-
-		if miss, ok := entry.(*CredentialsMiss); ok {
-
-			if miss.Expires.Before(now) {
-				slog.Debug("RADIUS: Credentials cache miss reset",
-					slog.String("username", miss.Username))
-				delete(this.stateCache, key)
-			}
-
-			continue
-		}
-
-		sess, ok := entry.(*Session)
-		if !ok {
-			delete(this.stateCache, key)
-			continue
-		}
-
-		if sess.Context.Err() != nil {
-
-			acctWg.Add(1)
-
-			slog.Debug("RADIUS: Session done",
-				slog.String("sid", sess.ID.String()),
-				slog.String("reason", "ttl"))
-
-			go func(sess *Session) {
-
-				defer acctWg.Done()
-				defer sess.closeDependencies()
-
-				sess.Wg.Wait()
-
-				if err := this.acctStopSession(ctx, sess); err != nil {
-					slog.Error("RADIUS: Failed to stop session accounting",
-						slog.String("err", err.Error()),
-						slog.String("sid", sess.ID.String()),
-						slog.String("stop_reason", "cancelled"))
-				}
-
-			}(sess)
-
-			delete(this.stateCache, key)
-			continue
-		}
-
-		if sess.IsIdle() {
-
-			sess.Terminate()
-
-			acctWg.Add(1)
-
-			slog.Debug("RADIUS: Session cancelled by idle timeout",
-				slog.String("sid", sess.ID.String()))
-
-			go func(sess *Session) {
-
-				defer acctWg.Done()
-				defer sess.closeDependencies()
-
-				sess.Wg.Wait()
-
-				if err := this.acctStopSession(ctx, sess); err != nil {
-					slog.Error("RADIUS: Error stopping session accounting",
-						slog.String("err", err.Error()),
-						slog.String("sid", sess.ID.String()),
-						slog.String("stop_reason", "idle"))
-				}
-
-			}(sess)
-
-			delete(this.stateCache, key)
-			continue
-		}
-
-		if sess.lastUpdated.Before(syncActivityAfter) {
-
-			slog.Debug("RADIUS: Session accounting update",
-				slog.String("sid", sess.ID.String()))
-
-			acctWg.Add(1)
-
-			go func(sess *Session) {
-
-				defer acctWg.Done()
-
-				if err := this.acctUpdateSession(ctx, sess); err != nil {
-					slog.Error("RADIUS: Failed to update session accounting",
-						slog.String("err", err.Error()),
-						slog.String("sid", sess.ID.String()))
-				}
-
-			}(sess)
-
-			sess.lastUpdated = now
-		}
-	}
-
-	acctWg.Wait()
-}
-
 func (this *radiusController) dacHandler(wrt radius.ResponseWriter, req *radius.Request) {
 
 	switch req.Code {
@@ -690,8 +609,8 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 		return
 	}
 
-	sess := this.lookupCachedSessionByID(sessID.UUID)
-	if sess == nil {
+	sess, has := this.state.LookupSessionEntry(sessID.UUID)
+	if !has {
 
 		slog.Warn("RADIUS DAC: DM session ID not found",
 			slog.String("sid", sessID.UUID.String()),
@@ -704,9 +623,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 		return
 	}
 
-	if sess.Context.Err() == nil {
-		sess.Terminate()
-	}
+	sess.Terminate()
 
 	slog.Info("RADIUS DAC: DM OK",
 		slog.String("sid", sess.ID.String()),
@@ -724,8 +641,8 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		return
 	}
 
-	sess := this.lookupCachedSessionByID(sessID.UUID)
-	if sess == nil {
+	sess, has := this.state.LookupSessionEntry(sessID.UUID)
+	if !has {
 
 		slog.Warn("RADIUS DAC: CoA session ID not found",
 			slog.String("sid", sessID.UUID.String()),

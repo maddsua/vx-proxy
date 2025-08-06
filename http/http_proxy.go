@@ -57,11 +57,11 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sess, err := this.Auth.WithPassword(ctx, auth.PasswordProxyAuth{
-		BasicCredentials: *creds,
-		ClientIP:         clientIP,
-		NasAddr:          nasIP,
-		NasPort:          nasPort,
+	sess, err := this.Auth.WithPassword(ctx, auth.PasswordAuth{
+		UserPassword: *creds,
+		ClientIP:     clientIP,
+		NasAddr:      nasIP,
+		NasPort:      nasPort,
 	})
 
 	if err == auth.ErrUnauthorized {
@@ -82,9 +82,8 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	//	lock session wg
-	sess.Wg.Add(1)
-	defer sess.Wg.Done()
+	sess.TrackConn()
+	defer sess.ConnDone()
 
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
@@ -191,7 +190,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	}
 
 	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
-	dstConn, err := dialer.DialContext(sess.Context, "tcp", hostAddr)
+	dstConn, err := dialer.DialContext(sess.Context(), "tcp", hostAddr)
 	if err != nil {
 
 		slog.Debug("HTTP tunnel: Unable to dial destination",
@@ -288,7 +287,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		SpeedCapTx: sess.MaxDataRateTx,
 	}
 
-	if err := piper.Pipe(sess.Context); err != nil {
+	if err := piper.Pipe(sess.Context()); err != nil {
 		slog.Debug("HTTP tunnel: Broken pipe",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
@@ -311,7 +310,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	wrt.Header().Del("Server")
 	wrt.Header().Set("X-Forward-Proxy", "vx/forward")
 
-	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &bodyReader)
+	forwardReq, err := http.NewRequestWithContext(sess.Context(), req.Method, req.RequestURI, &bodyReader)
 	if err != nil {
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
@@ -417,12 +416,12 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	select {
 	case <-copyDoneCh:
 		return
-	case <-sess.Context.Done():
+	case <-sess.Context().Done():
 		return
 	}
 }
 
-func getRequestCredentials(headers http.Header) (*auth.BasicCredentials, error) {
+func getRequestCredentials(headers http.Header) (*auth.UserPassword, error) {
 
 	proxyAuth := headers.Get("Proxy-Authorization")
 	if proxyAuth == "" {
@@ -444,7 +443,7 @@ func getRequestCredentials(headers http.Header) (*auth.BasicCredentials, error) 
 		return nil, errors.New("username is empty")
 	}
 
-	return &auth.BasicCredentials{
+	return &auth.UserPassword{
 		Username: username,
 		Password: password,
 	}, nil
