@@ -24,7 +24,7 @@ Features:
 
 Features:
 - ✅ HTTP tunnelling (`CONNECT` method)
-- ⏳ Forward-proxying (`GET`,`POST`, etc.)
+- ✅ Forward-proxying (`GET`,`POST`, etc.)
 - ✅ Basic proxy auth (username/password)
 - ⏳ TLS (HTTPS) proxy
 
