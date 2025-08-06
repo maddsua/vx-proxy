@@ -71,6 +71,14 @@ func (this *Session) EntryExpires() (time.Time, bool) {
 	return this.Context.Deadline()
 }
 
+func (this *Session) closeDependencies() {
+	if this.FramedHttpClient != nil {
+		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
+}
+
 type CredentialsMiss struct {
 	Expires  time.Time
 	Username string

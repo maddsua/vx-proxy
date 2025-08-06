@@ -578,11 +578,12 @@ func (this *radiusController) reportAccounting() {
 
 			slog.Debug("RADIUS: Session done",
 				slog.String("sid", sess.ID.String()),
-				slog.String("reason", sess.Context.Err().Error()))
+				slog.String("reason", "ttl"))
 
 			go func(sess *Session) {
 
 				defer acctWg.Done()
+				defer sess.closeDependencies()
 
 				sess.Wg.Wait()
 
@@ -611,6 +612,7 @@ func (this *radiusController) reportAccounting() {
 			go func(sess *Session) {
 
 				defer acctWg.Done()
+				defer sess.closeDependencies()
 
 				sess.Wg.Wait()
 
