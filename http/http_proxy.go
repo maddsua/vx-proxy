@@ -308,7 +308,8 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	bodyReader := utils.ReadAccounter{Reader: req.Body}
 	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
 
-	wrt.Header().Set("X-Via", "vx/forward")
+	wrt.Header().Del("Server")
+	wrt.Header().Set("X-Forward-Proxy", "vx/forward")
 
 	forwardReq, err := http.NewRequestWithContext(sess.Context, req.Method, req.RequestURI, &bodyReader)
 	if err != nil {
@@ -335,7 +336,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	for key, values := range req.Header {
 		for _, val := range values {
 			switch http.CanonicalHeaderKey(key) {
-			case "X-Via", "Connection", "Upgrade":
+			case "Connection", "Upgrade":
 				continue
 			default:
 				forwardReq.Header.Add(key, val)
@@ -376,9 +377,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	for key, values := range resp.Header {
 		for _, val := range values {
 			switch http.CanonicalHeaderKey(key) {
-			case "X-Via":
-				wrt.Header().Set(key, fmt.Sprintf("%s; vx/forward", val))
-			case "Transfer-Encoding", "TE":
+			case "Transfer-Encoding", "TE", "X-Forward-Proxy":
 				continue
 			default:
 				wrt.Header().Add(key, val)
