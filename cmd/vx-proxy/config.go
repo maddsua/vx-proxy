@@ -43,6 +43,7 @@ func (this PortSet) Register(porter Porter, service string) error {
 }
 
 type Config struct {
+	Debug    bool           `yaml:"debug"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Services ServicesConfig `yaml:"services"`
 	Dns      dns.Config     `yaml:"dns"`

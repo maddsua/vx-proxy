@@ -45,11 +45,6 @@ func main() {
 
 	slog.Info("Service vx-proxy starting...")
 
-	if *cli.Debug || strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-		slog.Debug("Enabled")
-	}
-
 	if *cli.CfgFile == "" {
 
 		loc, has := utils.FindLocation([]string{
@@ -73,6 +68,11 @@ func main() {
 		slog.Error("Failed to load config file",
 			slog.String("err", err.Error()))
 		os.Exit(1)
+	}
+
+	if *cli.Debug || cfg.Debug || strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+		slog.Debug("Enabled")
 	}
 
 	var customDNS *net.Resolver

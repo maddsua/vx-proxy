@@ -11,3 +11,4 @@ services:
     port_range: 8820-8825
   telemetry:
     listen_addr: localhost:1111
+debug: true
