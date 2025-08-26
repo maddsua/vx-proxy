@@ -89,9 +89,16 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
 func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
 
-	const chunkSize = 32 * 1024
+	const defaultChunkSize = 32 * 1024
 
 	for ctx.Err() == nil {
+
+		var chunkSize int64 = defaultChunkSize
+		if limiter != nil {
+			if limit, has := limiter.Limit(); has {
+				chunkSize = int64(limit)
+			}
+		}
 
 		copyStarted := time.Now()
 
@@ -111,15 +118,8 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 			return err
 		}
 
-		//	apply speed limiting by calculating ideal chunk copy time
-		//	and waiting any extra time if the operation was completed sooner
-		if limiter != nil && written > 0 {
-			if limit, has := limiter.Limit(); has {
-				expected := time.Duration((int64(time.Second) * written) / int64(limit))
-				if delta := expected - time.Since(copyStarted); delta > 0 {
-					time.Sleep(delta)
-				}
-			}
+		if delta := time.Second - time.Since(copyStarted); delta > 0 {
+			time.Sleep(delta)
 		}
 	}
 

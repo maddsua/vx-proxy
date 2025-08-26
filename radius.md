@@ -31,8 +31,8 @@ Expected **Access-Accept**:
 | rfc4372.ChargeableUserIdentity | Accountable user ID | `text/binary` | maddsua |
 | rfc2865.SessionTimeout | max. session duration | `duration seconds` | 3600 |
 | rfc2865.IdleTimeout | max. session idle time | `duration seconds` | 600 |
-| rfc4679.MaximumDataRateDownstream | Session bandwidth limit RX (download) (`0` treated as no limit) | `integer` | 50_000_000 |
-| rfc4679.MaximumDataRateUpstream | Session bandwidth limit TX (upload) (`0` treated as no limit) | `integer` | 5_000_000 |
+| rfc4679.MaximumDataRateDownstream | Session bandwidth limit RX, bits/s (download) (`0` treated as no limit) | `integer` | 50_000_000 |
+| rfc4679.MaximumDataRateUpstream | Session bandwidth limit TX, bits/s (upload) (`0` treated as no limit) | `integer` | 5_000_000 |
 
 Immediately after a successfull `Access-Request` vx will try to start session accounting. This is done by sending a following packet.
 

@@ -431,12 +431,14 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	}
 
 	sess := Session{
-		ID:           sessUuid,
-		UserName:     &auth.Username,
-		ClientID:     "<nil>",
-		lastActivity: time.Now(),
-		lastUpdated:  time.Now(),
-		FramedIP:     auth.NasAddr,
+		ID:            sessUuid,
+		UserName:      &auth.Username,
+		ClientID:      "<nil>",
+		lastActivity:  time.Now(),
+		lastUpdated:   time.Now(),
+		FramedIP:      auth.NasAddr,
+		MaxDataRateRx: int(rfc4679.MaximumDataRateDownstream_Get(resp) / 8),
+		MaxDataRateTx: int(rfc4679.MaximumDataRateUpstream_Get(resp) / 8),
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
@@ -479,9 +481,6 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	} else {
 		sess.IdleTimeout = 10 * time.Minute
 	}
-
-	sess.MaxDataRateRx = int(rfc4679.MaximumDataRateDownstream_Get(resp))
-	sess.MaxDataRateTx = int(rfc4679.MaximumDataRateUpstream_Get(resp))
 
 	return &sess, nil
 }
