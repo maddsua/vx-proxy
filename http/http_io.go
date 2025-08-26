@@ -3,6 +3,7 @@ package http
 import (
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/maddsua/vx-proxy/utils"
 )
@@ -13,21 +14,24 @@ type BodyReader struct {
 	MaxRate utils.SpeedLimiter
 }
 
-func (this *BodyReader) Read(p []byte) (n int, err error) {
+func (this *BodyReader) Read(buff []byte) (int, error) {
 
-	n, err = this.Reader.Read(p)
+	size, err := this.Reader.Read(buff)
 
 	if this.Acct != nil {
-		this.Acct.Add(int64(n))
+		this.Acct.Add(int64(size))
 	}
 
 	if this.MaxRate != nil {
 		if limit, has := this.MaxRate.Limit(); has {
-			//	todo: add a delay
+			//	this isn't optimal and will ondershoot the speed
+			//	but it's the best shot with the current http implementation
+			expected := time.Duration((int64(time.Second) * int64(size)) / int64(limit))
+			time.Sleep(expected)
 		}
 	}
 
-	return
+	return size, err
 }
 
 func (this *BodyReader) Close() error {
