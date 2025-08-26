@@ -17,7 +17,7 @@ type Session struct {
 	ClientID    string
 	IdleTimeout time.Duration
 
-	//	Max total RX/TX data rate per sessio
+	//	Max total RX/TX data rate per session (bits/s)
 	MaxDataRateRx int
 	MaxDataRateTx int
 
