@@ -36,7 +36,9 @@ type SpeedLimiter interface {
 	Limit() (int, bool)
 }
 
-// Piper splices two network connections into one and acts as a middleman between the hosts
+// Piper splices two network connections into one and acts as a middleman between the hosts.
+//
+// 'RX' stands for data received from remote, where 'TX' stands for client-sent data respectively
 type ConnectionPiper struct {
 	Remote    net.Conn
 	RxAcct    *atomic.Int64
