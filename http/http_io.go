@@ -2,37 +2,36 @@ package http
 
 import (
 	"io"
-	"net/http"
+	"sync/atomic"
+	"time"
+
+	"github.com/maddsua/vx-proxy/utils"
 )
 
-type BodyWriter struct {
-	Writer     http.ResponseWriter
-	TotalWrite int64
+type BodyReader struct {
+	Reader  io.Reader
+	Acct    *atomic.Int64
+	MaxRate utils.SpeedLimiter
 }
 
-func (this *BodyWriter) Write(p []byte) (n int, err error) {
+func (this *BodyReader) Read(buff []byte) (int, error) {
 
-	if n, err = this.Writer.Write(p); n > 0 {
+	size, err := this.Reader.Read(buff)
 
-		if flusher, ok := this.Writer.(http.Flusher); ok {
-			flusher.Flush()
-		}
-
-		this.TotalWrite += int64(n)
+	if this.Acct != nil {
+		this.Acct.Add(int64(size))
 	}
 
-	return
-}
+	if this.MaxRate != nil {
+		if limit, has := this.MaxRate.Limit(); has {
+			//	this isn't optimal and will ondershoot the speed
+			//	but it's the best shot with the current http implementation
+			expected := time.Duration((int64(time.Second) * int64(size)) / int64(limit))
+			time.Sleep(expected)
+		}
+	}
 
-type BodyReader struct {
-	Reader    io.Reader
-	TotalRead int64
-}
-
-func (this *BodyReader) Read(p []byte) (n int, err error) {
-	n, err = this.Reader.Read(p)
-	this.TotalRead += int64(n)
-	return
+	return size, err
 }
 
 func (this *BodyReader) Close() error {

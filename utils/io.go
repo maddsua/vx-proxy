@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,12 +63,12 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(txCtx, this.Remote, this.Client, this.TxMaxRate, this.TxAcct)
+		doneCh <- PipeIO(txCtx, this.Remote, this.Client, this.TxMaxRate, this.TxAcct)
 	}()
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(rxCtx, this.Client, this.Remote, this.RxMaxRate, this.RxAcct)
+		doneCh <- PipeIO(rxCtx, this.Client, this.Remote, this.RxMaxRate, this.RxAcct)
 	}()
 
 	select {
@@ -86,17 +87,21 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeConnection(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, transferAcct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
 
-	const buffSize = 32 * 1024
+	const chunkSize = 32 * 1024
 
 	for ctx.Err() == nil {
 
-		chunkCopyStarted := time.Now()
+		copyStarted := time.Now()
 
-		bytesSent, err := io.CopyN(dst, src, buffSize)
-		if bytesSent > 0 && transferAcct != nil {
-			transferAcct.Add(bytesSent)
+		written, err := io.CopyN(dst, src, chunkSize)
+		if written > 0 && acct != nil {
+			acct.Add(written)
+		}
+
+		if flusher, ok := dst.(http.Flusher); ok && (err == nil || err == io.EOF) {
+			flusher.Flush()
 		}
 
 		if err != nil {
@@ -108,11 +113,11 @@ func PipeConnection(ctx context.Context, dst io.Writer, src io.Reader, limiter S
 
 		//	apply speed limiting by calculating ideal chunk copy time
 		//	and waiting any extra time if the operation was completed sooner
-		if limiter != nil {
+		if limiter != nil && written > 0 {
 			if limit, has := limiter.Limit(); has {
-				chunkTimeout := time.Duration(int64(time.Second*buffSize) / int64(limit))
-				if delay := chunkTimeout - time.Since(chunkCopyStarted); delay > 0 {
-					time.Sleep(delay)
+				expected := time.Duration((int64(time.Second) * written) / int64(limit))
+				if delta := expected - time.Since(copyStarted); delta > 0 {
+					time.Sleep(delta)
 				}
 			}
 		}

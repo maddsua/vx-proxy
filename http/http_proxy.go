@@ -2,10 +2,10 @@ package http
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -242,9 +242,10 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 				slog.String("sid", sess.ID.String()),
 				slog.String("host", hostAddr),
 				slog.String("err", err.Error()))
+			return
 		}
 
-		if _, err := dstConn.Write(buff); err != nil {
+		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -255,8 +256,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 				slog.String("err", err.Error()))
 			return
 		}
-
-		sess.AcctTxBytes.Add(int64(buffered))
 	}
 
 	//	explicitly reset rw as we won't be using it anymore
@@ -304,8 +303,11 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	bodyReader := BodyReader{Reader: req.Body}
-	defer sess.AcctTxBytes.Add(bodyReader.TotalRead)
+	bodyReader := BodyReader{
+		Reader:  req.Body,
+		Acct:    &sess.AcctTxBytes,
+		MaxRate: sess.ConnectionMaxTx(),
+	}
 
 	wrt.Header().Del("Server")
 	wrt.Header().Set("X-Forward-Proxy", "vx/forward")
@@ -386,17 +388,11 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	wrt.WriteHeader(resp.StatusCode)
 
-	bodyWriter := BodyWriter{Writer: wrt}
-	defer sess.AcctRxBytes.Add(bodyWriter.TotalWrite)
-
-	//	this wonderful logic down here streams response body until
-	//	either all the data gets transferred OR the session context is cancelled
-
 	copyDoneCh := make(chan bool)
 
 	go func() {
 
-		if _, err := io.Copy(&bodyWriter, resp.Body); err != nil {
+		if err := utils.PipeIO(req.Context(), wrt, resp.Body, sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP forward: Copy body failed",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
