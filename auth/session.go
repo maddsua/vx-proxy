@@ -12,12 +12,14 @@ import (
 )
 
 type Session struct {
-	ID            uuid.UUID
-	UserName      *string
-	ClientID      string
+	ID          uuid.UUID
+	UserName    *string
+	ClientID    string
+	IdleTimeout time.Duration
+
+	//	Max total RX/TX data rate per sessio
 	MaxDataRateRx int
 	MaxDataRateTx int
-	IdleTimeout   time.Duration
 
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
@@ -25,16 +27,19 @@ type Session struct {
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
 
+	//	Accounting tracking
 	lastActivity time.Time
 	lastUpdated  time.Time
 
+	//	Data volume accounting
 	AcctRxBytes atomic.Int64
 	AcctTxBytes atomic.Int64
 
+	//	Session controls
 	ctx       context.Context
 	cancelCtx context.CancelFunc
-
-	wg sync.WaitGroup
+	wg        sync.WaitGroup
+	cc        atomic.Int64
 }
 
 func (this *Session) Context() context.Context {
@@ -56,10 +61,12 @@ func (this *Session) IsCancelled() bool {
 
 func (this *Session) TrackConn() {
 	this.wg.Add(1)
+	this.cc.Add(1)
 }
 
 func (this *Session) ConnDone() {
 	this.wg.Done()
+	this.cc.Add(-1)
 }
 
 func (this *Session) WaitDone() {
@@ -100,6 +107,39 @@ func (this *Session) closeDependencies() {
 			tr.CloseIdleConnections()
 		}
 	}
+}
+
+func (this *Session) ConnectionMaxRx() speedLimiter {
+	return speedLimiter{
+		maxrate: this.MaxDataRateRx,
+		conns:   &this.cc,
+	}
+}
+
+func (this *Session) ConnectionMaxTx() speedLimiter {
+	return speedLimiter{
+		maxrate: this.MaxDataRateTx,
+		conns:   &this.cc,
+	}
+}
+
+type speedLimiter struct {
+	maxrate int
+	conns   *atomic.Int64
+}
+
+func (this speedLimiter) Limit() (int, bool) {
+
+	if this.maxrate <= 0 {
+		return 0, false
+	}
+
+	count := this.conns.Load()
+	if count <= 1 {
+		return this.maxrate, true
+	}
+
+	return this.maxrate / int(count), true
 }
 
 type CredentialsMiss struct {

@@ -32,6 +32,10 @@ func ReadByte(reader io.Reader) (byte, error) {
 	return buff[0], err
 }
 
+type SpeedLimiter interface {
+	Limit() (int, bool)
+}
+
 // Piper splices two connections into one and acts as a middleman between two hosts in a cross pattern like so:
 //
 //	--------------
@@ -45,8 +49,8 @@ type ConnectionPiper struct {
 
 	TotalCounterRx *atomic.Int64
 	TotalCounterTx *atomic.Int64
-	SpeedCapRx     int
-	SpeedCapTx     int
+	SpeedCapRx     SpeedLimiter
+	SpeedCapTx     SpeedLimiter
 }
 
 func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
@@ -86,20 +90,13 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeConnection(ctx context.Context, dst net.Conn, src net.Conn, speedCap int, transferAcct *atomic.Int64) error {
+func PipeConnection(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, transferAcct *atomic.Int64) error {
 
 	const buffSize = 32 * 1024
 
-	var copyStarted time.Time
-	var chunkDelay time.Duration
-
-	if speedCap > 0 {
-		chunkDelay = (time.Second * buffSize) / time.Duration(speedCap)
-	}
-
 	for ctx.Err() == nil {
 
-		copyStarted = time.Now()
+		chunkCopyStarted := time.Now()
 
 		bytesSent, err := io.CopyN(dst, src, buffSize)
 		if bytesSent > 0 && transferAcct != nil {
@@ -113,8 +110,15 @@ func PipeConnection(ctx context.Context, dst net.Conn, src net.Conn, speedCap in
 			return err
 		}
 
-		if chunkDelay > 0 {
-			time.Sleep(chunkDelay - time.Since(copyStarted))
+		//	apply speed limiting by calculating ideal chunk copy time
+		//	and waiting any extra time if the operation was completed sooner
+		if limiter != nil {
+			if limit, has := limiter.Limit(); has {
+				chunkTimeout := time.Duration(int64(time.Second*buffSize) / int64(limit))
+				if delay := chunkTimeout - time.Since(chunkCopyStarted); delay > 0 {
+					time.Sleep(delay)
+				}
+			}
 		}
 	}
 

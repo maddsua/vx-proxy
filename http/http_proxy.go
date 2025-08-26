@@ -283,8 +283,8 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		TotalCounterRx: &sess.AcctRxBytes,
 		TotalCounterTx: &sess.AcctTxBytes,
 
-		SpeedCapRx: sess.MaxDataRateRx,
-		SpeedCapTx: sess.MaxDataRateTx,
+		SpeedCapRx: sess.ConnectionMaxRx(),
+		SpeedCapTx: sess.ConnectionMaxTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {
