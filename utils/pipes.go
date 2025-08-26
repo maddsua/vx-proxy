@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -104,6 +105,10 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 				return nil
 			}
 			return err
+		}
+
+		if flusher, ok := dst.(http.Flusher); ok {
+			flusher.Flush()
 		}
 
 		//	apply speed limiting by calculating ideal chunk copy time

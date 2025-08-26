@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -386,17 +385,11 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	wrt.WriteHeader(resp.StatusCode)
 
-	bodyWriter := BodyWriter{Writer: wrt}
-	defer sess.AcctRxBytes.Add(bodyWriter.TotalWrite)
-
-	//	this wonderful logic down here streams response body until
-	//	either all the data gets transferred OR the session context is cancelled
-
 	copyDoneCh := make(chan bool)
 
 	go func() {
 
-		if _, err := io.Copy(&bodyWriter, resp.Body); err != nil {
+		if err := utils.PipeIO(req.Context(), wrt, resp.Body, sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP forward: Copy body failed",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
