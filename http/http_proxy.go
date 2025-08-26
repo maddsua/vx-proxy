@@ -303,7 +303,11 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	bodyReader := BodyReader{Reader: req.Body, Acct: &sess.AcctTxBytes, MaxRate: sess.ConnectionMaxTx()}
+	bodyReader := BodyReader{
+		Reader:  req.Body,
+		Acct:    &sess.AcctTxBytes,
+		MaxRate: sess.ConnectionMaxTx(),
+	}
 
 	wrt.Header().Del("Server")
 	wrt.Header().Set("X-Forward-Proxy", "vx/forward")
