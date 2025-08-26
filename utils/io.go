@@ -95,9 +95,9 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 
 		chunkCopyStarted := time.Now()
 
-		bytesSent, err := io.CopyN(dst, src, buffSize)
-		if bytesSent > 0 && transferAcct != nil {
-			transferAcct.Add(bytesSent)
+		written, err := io.CopyN(dst, src, buffSize)
+		if written > 0 && transferAcct != nil {
+			transferAcct.Add(written)
 		}
 
 		if flusher, ok := dst.(http.Flusher); ok && (err == nil || err == io.EOF) {
