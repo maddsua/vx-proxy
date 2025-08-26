@@ -11,4 +11,4 @@
 .env
 
 # build stuff
-build
+.build

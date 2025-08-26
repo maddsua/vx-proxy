@@ -1,0 +1,6 @@
+Package: vx-proxy
+Architecture: amd64
+Maintainer: maddsua
+Section: net
+Priority: optional
+Description: A scalable RADIUS-controlled proxy service
