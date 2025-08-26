@@ -87,17 +87,17 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, transferAcct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
 
-	const buffSize = 32 * 1024
+	const chunkSize = 32 * 1024
 
 	for ctx.Err() == nil {
 
-		chunkCopyStarted := time.Now()
+		copyStarted := time.Now()
 
-		written, err := io.CopyN(dst, src, buffSize)
-		if written > 0 && transferAcct != nil {
-			transferAcct.Add(written)
+		written, err := io.CopyN(dst, src, chunkSize)
+		if written > 0 && acct != nil {
+			acct.Add(written)
 		}
 
 		if flusher, ok := dst.(http.Flusher); ok && (err == nil || err == io.EOF) {
@@ -113,10 +113,10 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 
 		//	apply speed limiting by calculating ideal chunk copy time
 		//	and waiting any extra time if the operation was completed sooner
-		if limiter != nil {
+		if limiter != nil && written > 0 {
 			if limit, has := limiter.Limit(); has {
-				expected := time.Duration(int64(time.Second*buffSize) / int64(limit))
-				if delta := expected - time.Since(chunkCopyStarted); delta > 0 {
+				expected := time.Duration((int64(time.Second) * written) / int64(limit))
+				if delta := expected - time.Since(copyStarted); delta > 0 {
 					time.Sleep(delta)
 				}
 			}
