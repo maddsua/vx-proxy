@@ -115,9 +115,9 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 		//	and waiting any extra time if the operation was completed sooner
 		if limiter != nil {
 			if limit, has := limiter.Limit(); has {
-				chunkTimeout := time.Duration(int64(time.Second*buffSize) / int64(limit))
-				if delay := chunkTimeout - time.Since(chunkCopyStarted); delay > 0 {
-					time.Sleep(delay)
+				expected := time.Duration(int64(time.Second*buffSize) / int64(limit))
+				if delta := expected - time.Since(chunkCopyStarted); delta > 0 {
+					time.Sleep(delta)
 				}
 			}
 		}
