@@ -1,9 +1,7 @@
 name: Release
-
 on:
   release:
     types: [published]
-
 jobs:
   extract-tag:
     name: Extract release tag
@@ -19,169 +17,43 @@ jobs:
           echo "Detected version: $RELEASE_VERSION; Tag: $RELEASE_TAG"
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_ENV
           echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
-
   build-vx-debian:
     name: Build proxy package
+    runs-on: ubuntu-22.04
     needs: ["extract-tag"]
-    runs-on: ubuntu-latest
-    container:
-      image: golang:1.24.3-bookworm
-      options: --user root
     steps:
       - name: git checkout
         uses: actions/checkout@v4
-
-      - name: Reset fs ownership
-        # because github is acting up and I cannot be FUCKING bothered to dig into it
-        # this issue only shows up in this project and ONLY on github
-        run: chown -R root .
-
-      - name: Make dist directories
-        run: |
-          mkdir -p build/usr/bin
-          mkdir -p build/etc/vx-proxy
-
-      - name: Build
-        run: go build -v -o build/usr/bin/vx-proxy -ldflags "-s -w" ./cmd/vx-proxy
-
-      - name: Copy proxy config file
-        run: cp cmd/vx-proxy/vx-proxy.yml build/etc/vx-proxy/vx-proxy.yml
-
-      - name: Create control file
-        run: |
-          mkdir -p build/DEBIAN
-          cat << EOF > build/DEBIAN/control
-          Package: vx-proxy
-          Version: ${{ needs.extract-tag.outputs.version }}
-          Architecture: amd64
-          Maintainer: maddsua
-          Section: net
-          Priority: optional
-          Description: A scalable RADIUS-controlled proxy service
-          EOF
-
-      - name: Create service file
-        run: |
-          mkdir -p build/etc/systemd/system
-          cat << EOF > build/etc/systemd/system/vx-proxy.service
-          [Unit]
-          Description=vx-proxy service
-          After=network.target
-
-          [Service]
-          Type=simple
-          ExecStart=/usr/bin/vx-proxy
-          Restart=on-failure
-          RestartSec=1
-          StartLimitBurst=5
-          StartLimitIntervalSec=10
-          User=nobody
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-
-      - name: Create postinstall file
-        run: |
-          cat << EOF > build/DEBIAN/postinst
-          #!/bin/sh
-          set -e
-          systemctl daemon-reload
-          systemctl enable vx-proxy.service
-          systemctl start vx-proxy.service
-          echo "vx-proxy service installed and started."
-          EOF
-
-          chmod +x build/DEBIAN/postinst
-
-      - name: Create package file
-        run: |
-          dpkg-deb -v --build ./build
-          mv build.deb vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
-
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.23.2'
+      - name: Build package
+        run: make build-proxy-deb VERSION=${{ needs.extract-tag.outputs.version }}
+      - name: Prepare artifact
+        run: mv .build/debian/vx-proxy.deb vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vx-proxy-deb
-          path: vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
-
-  build-vx-tools-debian:
-    name: Build tools package
-    needs: ["extract-tag"]
-    runs-on: ubuntu-latest
-    container:
-      image: golang:1.24.3-bookworm
-      options: --user root
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: Reset fs ownership
-        run: chown -R root .
-
-      - name: Make dist directories
-        run: |
-          mkdir -p build/usr/bin
-          mkdir -p build/etc/vx-proxy
-
-      - name: Build dac ctl
-        run: go build -v -o build/usr/bin/vx-dac-ctl -ldflags "-s -w" ./cmd/vx-dac-ctl
-
-      - name: Build staic auth server
-        run: go build -v -o build/usr/bin/vx-static-auth -ldflags "-s -w" ./cmd/vx-static-auth
-
-      - name: Copy static auth config file
-        run: cp cmd/vx-static-auth/vx-static-auth.yml build/etc/vx-proxy/vx-static-auth.yml
-
-      - name: Create control file
-        run: |
-          mkdir -p build/DEBIAN
-          cat << EOF > build/DEBIAN/control
-          Package: vx-proxy-devtools
-          Version: ${{ needs.extract-tag.outputs.version }}
-          Architecture: amd64
-          Maintainer: maddsua
-          Section: net
-          Priority: optional
-          Description: Development tools for the vx-proxy
-          EOF
-
-      - name: Create package file
-        run: |
-          dpkg-deb -v --build ./build
-          mv build.deb vx-proxy-devtools-${{ needs.extract-tag.outputs.version }}-amd64.deb
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vx-proxy-devtools-deb
-          path: vx-proxy-devtools-${{ needs.extract-tag.outputs.version }}-amd64.deb
-
-  upload-assets:
-    name: Upload release assets
-    needs: [
-      "extract-tag",
-      "build-vx-debian",
-      "build-vx-tools-debian"
-    ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all workflow run artifacts
-        uses: actions/download-artifact@v4
-        with:
-          merge-multiple: true
-          path: .
-
-      - name: Upload .deb proxy package
-        run: |
-          gh release upload ${{ needs.extract-tag.outputs.tag }} vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
+        run: gh release upload ${{ needs.extract-tag.outputs.tag }} vx-proxy-${{ needs.extract-tag.outputs.version }}-amd64.deb
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-
-      - name: Upload .deb tools package
-        run: |
-          gh release upload ${{ needs.extract-tag.outputs.tag }} vx-proxy-devtools-${{ needs.extract-tag.outputs.version }}-amd64.deb
+  build-vx-tools-debian:
+    name: Build tools package
+    runs-on: ubuntu-22.04
+    needs: ["extract-tag"]
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+      - name: Install go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.23.2'
+      - name: Build package
+        run: make build-tools-deb VERSION=${{ needs.extract-tag.outputs.version }}
+      - name: Prepare artifact
+        run: mv .build/debian/vx-tools.deb vx-proxy-tools-${{ needs.extract-tag.outputs.version }}-amd64.deb
+      - name: Upload artifact
+        run: gh release upload ${{ needs.extract-tag.outputs.tag }} vx-proxy-tools-${{ needs.extract-tag.outputs.version }}-amd64.deb
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
