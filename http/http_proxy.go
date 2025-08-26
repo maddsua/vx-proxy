@@ -277,14 +277,14 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	//	let the data flow!
 	piper := utils.ConnectionPiper{
-		RemoteConn: dstConn,
-		ClientConn: conn,
+		Remote: dstConn,
+		Client: conn,
 
-		TotalCounterRx: &sess.AcctRxBytes,
-		TotalCounterTx: &sess.AcctTxBytes,
+		RxAcct: &sess.AcctRxBytes,
+		TxAcct: &sess.AcctTxBytes,
 
-		SpeedCapRx: sess.ConnectionMaxRx(),
-		SpeedCapTx: sess.ConnectionMaxTx(),
+		RxMaxRate: sess.ConnectionMaxRx(),
+		TxMaxRate: sess.ConnectionMaxTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {

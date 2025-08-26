@@ -109,26 +109,26 @@ func (this *Session) closeDependencies() {
 	}
 }
 
-func (this *Session) ConnectionMaxRx() speedLimiter {
-	return speedLimiter{
+func (this *Session) ConnectionMaxRx() dynamicSpeedLimiter {
+	return dynamicSpeedLimiter{
 		maxrate: this.MaxDataRateRx,
 		conns:   &this.cc,
 	}
 }
 
-func (this *Session) ConnectionMaxTx() speedLimiter {
-	return speedLimiter{
+func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
+	return dynamicSpeedLimiter{
 		maxrate: this.MaxDataRateTx,
 		conns:   &this.cc,
 	}
 }
 
-type speedLimiter struct {
+type dynamicSpeedLimiter struct {
 	maxrate int
 	conns   *atomic.Int64
 }
 
-func (this speedLimiter) Limit() (int, bool) {
+func (this dynamicSpeedLimiter) Limit() (int, bool) {
 
 	if this.maxrate <= 0 {
 		return 0, false

@@ -36,21 +36,15 @@ type SpeedLimiter interface {
 	Limit() (int, bool)
 }
 
-// Piper splices two connections into one and acts as a middleman between two hosts in a cross pattern like so:
-//
-//	--------------
-//	|  A ---> B  |
-//	--------------
-//	|  B ---> A  |
-//	--------------
+// Piper splices two network connections into one and acts as a middleman between the hosts
 type ConnectionPiper struct {
-	RemoteConn net.Conn
-	ClientConn net.Conn
+	Remote    net.Conn
+	RxAcct    *atomic.Int64
+	RxMaxRate SpeedLimiter
 
-	TotalCounterRx *atomic.Int64
-	TotalCounterTx *atomic.Int64
-	SpeedCapRx     SpeedLimiter
-	SpeedCapTx     SpeedLimiter
+	Client    net.Conn
+	TxAcct    *atomic.Int64
+	TxMaxRate SpeedLimiter
 }
 
 func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
@@ -66,12 +60,12 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(txCtx, this.RemoteConn, this.ClientConn, this.SpeedCapTx, this.TotalCounterTx)
+		doneCh <- PipeConnection(txCtx, this.Remote, this.Client, this.TxMaxRate, this.TxAcct)
 	}()
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(rxCtx, this.ClientConn, this.RemoteConn, this.SpeedCapRx, this.TotalCounterRx)
+		doneCh <- PipeConnection(rxCtx, this.Client, this.Remote, this.RxMaxRate, this.RxAcct)
 	}()
 
 	select {
@@ -82,8 +76,8 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 	cancelRx()
 	cancelTx()
 
-	_ = this.RemoteConn.SetReadDeadline(time.Unix(1, 0))
-	_ = this.ClientConn.SetReadDeadline(time.Unix(1, 0))
+	_ = this.Remote.SetReadDeadline(time.Unix(1, 0))
+	_ = this.Client.SetReadDeadline(time.Unix(1, 0))
 
 	wg.Wait()
 	return
