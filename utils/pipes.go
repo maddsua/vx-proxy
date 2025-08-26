@@ -62,12 +62,12 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(txCtx, this.Remote, this.Client, this.TxMaxRate, this.TxAcct)
+		doneCh <- PipeIO(txCtx, this.Remote, this.Client, this.TxMaxRate, this.TxAcct)
 	}()
 
 	go func() {
 		defer wg.Done()
-		doneCh <- PipeConnection(rxCtx, this.Client, this.Remote, this.RxMaxRate, this.RxAcct)
+		doneCh <- PipeIO(rxCtx, this.Client, this.Remote, this.RxMaxRate, this.RxAcct)
 	}()
 
 	select {
@@ -86,7 +86,7 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeConnection(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, transferAcct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, transferAcct *atomic.Int64) error {
 
 	const buffSize = 32 * 1024
 
