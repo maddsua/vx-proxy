@@ -2,6 +2,7 @@ package http
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -241,9 +242,10 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 				slog.String("sid", sess.ID.String()),
 				slog.String("host", hostAddr),
 				slog.String("err", err.Error()))
+			return
 		}
 
-		if _, err := dstConn.Write(buff); err != nil {
+		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -254,8 +256,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 				slog.String("err", err.Error()))
 			return
 		}
-
-		sess.AcctTxBytes.Add(int64(buffered))
 	}
 
 	//	explicitly reset rw as we won't be using it anymore
