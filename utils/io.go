@@ -100,15 +100,15 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 			transferAcct.Add(bytesSent)
 		}
 
+		if flusher, ok := dst.(http.Flusher); ok && (err == nil || err == io.EOF) {
+			flusher.Flush()
+		}
+
 		if err != nil {
 			if ctx.Err() != nil || err == io.EOF {
 				return nil
 			}
 			return err
-		}
-
-		if flusher, ok := dst.(http.Flusher); ok {
-			flusher.Flush()
 		}
 
 		//	apply speed limiting by calculating ideal chunk copy time
