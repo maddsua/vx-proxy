@@ -49,7 +49,7 @@ func (this *SocksProxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		next = &socksV5Proxy{
 			Dns: this.Dns,
 			Auth: map[socksV5AuthMethod]socksV5Authenticator{
-				socksV5AuthMethodPassword: &socksV5PasswordAuthenticator{
+				v5_AuthMethodPassword: &socksV5PasswordAuthenticator{
 					Controller: this.Auth,
 				},
 			},
