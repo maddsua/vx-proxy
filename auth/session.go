@@ -100,7 +100,6 @@ func (this *Session) Expired() bool {
 	return ok && deadline.Before(time.Now())
 }
 
-// todo: implement
 func (this *Session) CanAcceptConnection() bool {
 	return this.MaxConcurrentConnections <= 0 || this.cc.Load() < int64(this.MaxConcurrentConnections)
 }

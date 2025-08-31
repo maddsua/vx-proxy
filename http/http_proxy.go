@@ -84,6 +84,17 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if !sess.CanAcceptConnection() {
+		slog.Debug("HTTP proxy: Session: Too many connections",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		wrt.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	sess.TrackConn()
 	defer sess.ConnDone()
 
@@ -92,7 +103,8 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		slog.Debug("HTTP proxy: Unable to determine target host",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()))
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()))
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
 	}

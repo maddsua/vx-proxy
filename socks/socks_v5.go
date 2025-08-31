@@ -130,6 +130,18 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	//	doing it after reading command to not bamboozle the client or anything
+	if !sess.CanAcceptConnection() {
+		slog.Debug("SOCKSv5: Session: Too many connections",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		_ = writeReply(socksV5ErrConnRefused)
+		return
+	}
+
 	switch cmd {
 
 	case socksV5CmdConnect:
