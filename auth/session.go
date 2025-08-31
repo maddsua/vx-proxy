@@ -121,38 +121,36 @@ func (this *Session) closeDependencies() {
 	}
 }
 
-// todo: rename: BandwidthRx
-func (this *Session) ConnectionMaxRx() dynamicSpeedLimiter {
+func (this *Session) BandwidthRx() bandwidthCtl {
 
 	if this.EnforceTotalBandwidth {
-		return dynamicSpeedLimiter{
+		return bandwidthCtl{
 			bandwidth: this.MaxRxRate,
 			peers:     &this.cc,
 		}
 	}
 
-	return dynamicSpeedLimiter{bandwidth: this.MaxRxRate}
+	return bandwidthCtl{bandwidth: this.MaxRxRate}
 }
 
-// todo: rename: BandwidthTx
-func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
+func (this *Session) BandwidthTx() bandwidthCtl {
 
 	if this.EnforceTotalBandwidth {
-		return dynamicSpeedLimiter{
+		return bandwidthCtl{
 			bandwidth: this.MaxTxRate,
 			peers:     &this.cc,
 		}
 	}
 
-	return dynamicSpeedLimiter{bandwidth: this.MaxTxRate}
+	return bandwidthCtl{bandwidth: this.MaxTxRate}
 }
 
-type dynamicSpeedLimiter struct {
+type bandwidthCtl struct {
 	bandwidth int
 	peers     *atomic.Int64
 }
 
-func (this dynamicSpeedLimiter) Chunker() *utils.IoChunker {
+func (this bandwidthCtl) Chunker() *utils.IoChunker {
 
 	if this.bandwidth <= 0 {
 		return nil

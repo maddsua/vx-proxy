@@ -11,7 +11,7 @@ import (
 type BodyReader struct {
 	Reader  io.Reader
 	Acct    *atomic.Int64
-	MaxRate utils.SpeedLimiter
+	MaxRate utils.Bandwidther
 }
 
 func (this *BodyReader) Read(buff []byte) (int, error) {

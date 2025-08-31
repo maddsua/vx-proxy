@@ -257,8 +257,8 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		RxAcct: &sess.AcctRxBytes,
 		TxAcct: &sess.AcctTxBytes,
 
-		RxMaxRate: sess.ConnectionMaxRx(),
-		TxMaxRate: sess.ConnectionMaxTx(),
+		RxMaxRate: sess.BandwidthRx(),
+		TxMaxRate: sess.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {

@@ -33,11 +33,14 @@ func ReadByte(reader io.Reader) (byte, error) {
 	return buff[0], err
 }
 
-type SpeedLimiter interface {
+// Bandwidther provides a way to dinamically dispatch IoChunker during IO operations. This allows to update connection speed without having to reset it
+type Bandwidther interface {
 	Chunker() *IoChunker
 }
 
-// Chunker implements data transfer speed control
+// Chunker implements data transfer speed controls.
+//
+// A typical use case is to mark copy operation start with Start(), copy Size() bytes to the destination and use Wait() to create an IO operation delay that's proportional to the target speed
 type IoChunker struct {
 	Bandwidth int
 	started   time.Time
@@ -76,11 +79,11 @@ func (this *IoChunker) Wait() {
 type ConnectionPiper struct {
 	Remote    net.Conn
 	RxAcct    *atomic.Int64
-	RxMaxRate SpeedLimiter
+	RxMaxRate Bandwidther
 
 	Client    net.Conn
 	TxAcct    *atomic.Int64
-	TxMaxRate SpeedLimiter
+	TxMaxRate Bandwidther
 }
 
 func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
@@ -122,7 +125,7 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 //	todo: test
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct *atomic.Int64) error {
 
 	const defaultChunkSize = 32 * 1024
 
