@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -155,6 +156,7 @@ func (this *CredentialsMiss) Expired() bool {
 //	todo: add to config
 //	todo: handle session bandwidth enforcement
 
+// SessionConfig provides default session options. These options can be overriden by radius
 type SessionConfig struct {
 	Timeout                  string `yaml:"timeout"`
 	IdleTimeout              string `yaml:"idle_timeout"`
@@ -166,9 +168,44 @@ type SessionConfig struct {
 
 func (this SessionConfig) Parse() (SessionOptions, error) {
 
-	opts := SessionOptions{}
+	opts := SessionOptions{
+		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
+		MaxConcurrentConnections: this.MaxConcurrentConnections,
+		MaxDownloadRate:          this.MaxDownloadRate,
+		MaxUploadRate:            this.MaxUploadRate,
+	}
 
-	//	todo: parse
+	if this.Timeout != "" {
+		if val, err := time.ParseDuration(this.Timeout); err != nil {
+			return opts, fmt.Errorf("error parsing timeout: %v", err)
+		} else if val < time.Second {
+			return opts, fmt.Errorf("timeout value too small")
+		} else {
+			opts.Timeout = val
+		}
+	}
+
+	if this.IdleTimeout != "" {
+		if val, err := time.ParseDuration(this.IdleTimeout); err != nil {
+			return opts, fmt.Errorf("error parsing idle_timeout: %v", err)
+		} else if val < time.Second {
+			return opts, fmt.Errorf("idle_timeout value too small")
+		} else {
+			opts.IdleTimeout = val
+		}
+	}
+
+	if this.MaxConcurrentConnections < 0 {
+		return opts, fmt.Errorf("max_concurrent_connections value invalid")
+	}
+
+	if this.MaxDownloadRate < 0 {
+		return opts, fmt.Errorf("max_download_rate value invalid")
+	}
+
+	if this.MaxUploadRate < 0 {
+		return opts, fmt.Errorf("max_upload_rate value invalid")
+	}
 
 	return opts, nil
 }
@@ -177,7 +214,25 @@ func (this SessionConfig) Unwrap() SessionOptions {
 
 	opts, _ := this.Parse()
 
-	//	todo: apply defaults
+	if opts.Timeout == 0 {
+		opts.Timeout = 15 * time.Minute
+	}
+
+	if opts.IdleTimeout == 0 {
+		opts.IdleTimeout = 5 * time.Minute
+	}
+
+	if opts.MaxConcurrentConnections == 0 {
+		opts.MaxConcurrentConnections = 256
+	}
+
+	if opts.MaxDownloadRate == 0 {
+		opts.MaxDownloadRate = 50_000_000
+	}
+
+	if opts.MaxUploadRate == 0 {
+		opts.MaxUploadRate = 25_000_000
+	}
 
 	return opts
 }
