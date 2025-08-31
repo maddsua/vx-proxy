@@ -18,11 +18,14 @@ import (
 	"github.com/maddsua/vx-proxy/auth"
 )
 
-//	todo: hide forward proxy behind a flag
-
 type HttpProxy struct {
+	HandlerConfig
 	Auth auth.Controller
 	Dns  *net.Resolver
+}
+
+type HandlerConfig struct {
+	ForwardEnable bool `yaml:"forward_enable"`
 }
 
 func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
@@ -142,6 +145,17 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		this.ServeTunnel(conn, rw, sess, dstHost)
 
 	default:
+
+		if !this.ForwardEnable {
+			slog.Debug("HTTP proxy: Forward disabled",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
+				slog.String("client_ip", clientIP.String()),
+				slog.String("sid", sess.ID.String()))
+			wrt.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		this.ServeForward(wrt, req, sess)
 	}
 }

@@ -117,9 +117,9 @@ func main() {
 	if cfg.Services.Http != nil {
 
 		svc := httproxy.HttpServer{
-			Config: *cfg.Services.Http,
-			Auth:   authc,
-			Dns:    customDNS,
+			ServerConfig: *cfg.Services.Http,
+			Auth:         authc,
+			Dns:          customDNS,
 		}
 
 		go func() {
@@ -137,9 +137,9 @@ func main() {
 	if cfg.Services.Socks != nil {
 
 		svc := socks.SocksServer{
-			Config: *cfg.Services.Socks,
-			Auth:   authc,
-			Dns:    customDNS,
+			ServerConfig: *cfg.Services.Socks,
+			Auth:         authc,
+			Dns:          customDNS,
 		}
 
 		go func() {

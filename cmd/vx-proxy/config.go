@@ -87,9 +87,9 @@ func (this *Config) Validate() error {
 }
 
 type ServicesConfig struct {
-	Http      *http.Config      `yaml:"http"`
-	Socks     *socks.Config     `yaml:"socks"`
-	Telemetry *telemetry.Config `yaml:"telemetry"`
+	Http      *http.ServerConfig  `yaml:"http"`
+	Socks     *socks.ServerConfig `yaml:"socks"`
+	Telemetry *telemetry.Config   `yaml:"telemetry"`
 }
 
 func (this *ServicesConfig) Validate(portSet PortSet) error {

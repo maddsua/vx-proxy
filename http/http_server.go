@@ -11,11 +11,12 @@ import (
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-type Config struct {
+type ServerConfig struct {
 	PortRange string `yaml:"port_range"`
+	HandlerConfig
 }
 
-func (this *Config) Validate() error {
+func (this *ServerConfig) Validate() error {
 
 	if this.PortRange == "" {
 		return fmt.Errorf("port_range is missing")
@@ -28,7 +29,7 @@ func (this *Config) Validate() error {
 	return nil
 }
 
-func (this Config) BindsPorts() []string {
+func (this ServerConfig) BindsPorts() []string {
 
 	var ports []string
 
@@ -42,7 +43,7 @@ func (this Config) BindsPorts() []string {
 }
 
 type HttpServer struct {
-	Config
+	ServerConfig
 
 	Auth auth.Controller
 	Dns  *net.Resolver
@@ -57,13 +58,14 @@ type HttpServer struct {
 func (this *HttpServer) ListenAndServe() error {
 
 	requestHandler := &HttpProxy{
-		Auth: this.Auth,
-		Dns:  this.Dns,
+		Auth:          this.Auth,
+		Dns:           this.Dns,
+		HandlerConfig: this.ServerConfig.HandlerConfig,
 	}
 
-	portRange, err := utils.ParseRange(this.Config.PortRange)
+	portRange, err := utils.ParseRange(this.ServerConfig.PortRange)
 	if err != nil {
-		return fmt.Errorf("invalid port range: '%v'", this.Config.PortRange)
+		return fmt.Errorf("invalid port range: '%v'", this.ServerConfig.PortRange)
 	}
 
 	errorCh := make(chan error, 1)
