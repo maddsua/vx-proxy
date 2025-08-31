@@ -85,7 +85,7 @@ func (this RadiusConfig) BindsPorts() []string {
 	return ports
 }
 
-func NewRadiusController(protoCfg RadiusConfig) (*radiusController, error) {
+func NewRadiusController(protoCfg RadiusConfig, sessOpts SessionOptions) (*radiusController, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -96,7 +96,8 @@ func NewRadiusController(protoCfg RadiusConfig) (*radiusController, error) {
 		ctx:       ctx,
 		cancelCtx: cancel,
 
-		state:         sessionState{entries: map[string]expirer{}},
+		sessOpts:      sessOpts,
+		sessState:     sessionState{entries: map[string]expirer{}},
 		refreshTicker: time.NewTicker(10 * time.Second),
 	}
 
@@ -122,7 +123,8 @@ type radiusController struct {
 	acctAddr string
 	secret   []byte
 
-	state         sessionState
+	sessState     sessionState
+	sessOpts      SessionOptions
 	refreshTicker *time.Ticker
 
 	ctx       context.Context
@@ -173,14 +175,14 @@ func (this *radiusController) Shutdown(ctx context.Context) error {
 
 		var wg sync.WaitGroup
 
-		for _, entry := range this.state.Entries() {
+		for _, entry := range this.sessState.Entries() {
 
 			if sess, ok := entry.Val.(*Session); ok {
 				wg.Add(1)
 				go terminateSession(&wg, sess)
 			}
 
-			this.state.Del(entry.Key)
+			this.sessState.Del(entry.Key)
 		}
 
 		wg.Wait()
@@ -229,7 +231,7 @@ func (this *radiusController) asyncRefresh() {
 					slog.String("err", err.Error()))
 			}
 
-			this.state.Del(stateKey)
+			this.sessState.Del(stateKey)
 
 		case sess.IsIdle():
 
@@ -248,7 +250,7 @@ func (this *radiusController) asyncRefresh() {
 					slog.String("err", err.Error()))
 			}
 
-			this.state.Del(stateKey)
+			this.sessState.Del(stateKey)
 
 		case time.Since(sess.lastUpdated) > updateInterval:
 
@@ -272,7 +274,7 @@ func (this *radiusController) asyncRefresh() {
 
 		var wg sync.WaitGroup
 
-		for _, entry := range this.state.Entries() {
+		for _, entry := range this.sessState.Entries() {
 
 			switch val := entry.Val.(type) {
 
@@ -284,7 +286,7 @@ func (this *radiusController) asyncRefresh() {
 				if val.Expired() {
 					slog.Debug("RADIUS: Credentials cache miss reset",
 						slog.String("username", val.Username))
-					this.state.Del(entry.Key)
+					this.sessState.Del(entry.Key)
 				}
 
 			default:
@@ -292,7 +294,7 @@ func (this *radiusController) asyncRefresh() {
 					slog.Warn("RADIUS: Expired key removed",
 						slog.String("key", entry.Key),
 						slog.String("type", fmt.Sprintf("%T", entry.Val)))
-					this.state.Del(entry.Key)
+					this.sessState.Del(entry.Key)
 				}
 			}
 		}
@@ -338,7 +340,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 	hasher.Write([]byte(strconv.Itoa(auth.NasPort)))
 	sessKey := "pwa_sha:" + hex.EncodeToString(hasher.Sum(nil))
 
-	if sess, has := this.state.LoadSession(sessKey); has && sess == nil {
+	if sess, has := this.sessState.LoadSession(sessKey); has && sess == nil {
 		return nil, ErrUnauthorized
 	} else if sess != nil {
 		sess.BumpActive()
@@ -349,7 +351,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 	if err != nil {
 
 		if err == ErrUnauthorized {
-			this.state.Store(sessKey, &CredentialsMiss{
+			this.sessState.Store(sessKey, &CredentialsMiss{
 				Username: auth.Username,
 				Expires:  time.Now().Add(time.Minute),
 			})
@@ -368,7 +370,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 		slog.String("sid", sess.ID.String()),
 		slog.String("user", sess.ClientID))
 
-	this.state.Store(sessKey, sess)
+	this.sessState.Store(sessKey, sess)
 
 	return sess, nil
 }
@@ -431,6 +433,8 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	}
 
 	sess := Session{
+		SessionOptions: this.sessOpts,
+
 		ID:           sessUuid,
 		UserName:     &auth.Username,
 		ClientID:     "<nil>",
@@ -468,20 +472,23 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		}
 	}
 
-	if sessTimeout := rfc2865.SessionTimeout_Get(resp); sessTimeout > 0 {
-		sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), time.Second*time.Duration(sessTimeout))
-	} else {
-		sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), time.Hour)
+	if val := rfc2865.SessionTimeout_Get(resp); val > 0 {
+		sess.Timeout = time.Duration(val) * time.Second
 	}
 
-	if idleTimeout := rfc2865.IdleTimeout_Get(resp); idleTimeout > 0 {
-		sess.IdleTimeout = time.Duration(idleTimeout) * time.Second
-	} else {
-		sess.IdleTimeout = 10 * time.Minute
+	if val := rfc2865.IdleTimeout_Get(resp); val > 0 {
+		sess.IdleTimeout = time.Duration(val) * time.Second
 	}
 
-	sess.MaxDataRateRx = int(rfc4679.MaximumDataRateDownstream_Get(resp))
-	sess.MaxDataRateTx = int(rfc4679.MaximumDataRateUpstream_Get(resp))
+	if val, err := rfc4679.MaximumDataRateDownstream_Lookup(req); err == nil {
+		sess.MaxDownloadRate = int(val)
+	}
+
+	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req); err == nil {
+		sess.MaxUploadRate = int(val)
+	}
+
+	sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), sess.Timeout)
 
 	return &sess, nil
 }
@@ -609,7 +616,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 		return
 	}
 
-	sess, has := this.state.LookupSessionEntry(sessID.UUID)
+	sess, has := this.sessState.LookupSessionEntry(sessID.UUID)
 	if !has {
 
 		slog.Warn("RADIUS DAC: DM session ID not found",
@@ -641,7 +648,7 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		return
 	}
 
-	sess, has := this.state.LookupSessionEntry(sessID.UUID)
+	sess, has := this.sessState.LookupSessionEntry(sessID.UUID)
 	if !has {
 
 		slog.Warn("RADIUS DAC: CoA session ID not found",
@@ -662,13 +669,18 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		sess.IdleTimeout = 0
 	}
 
-	sess.MaxDataRateRx = int(rfc4679.MaximumDataRateDownstream_Get(req.Packet))
-	sess.MaxDataRateTx = int(rfc4679.MaximumDataRateUpstream_Get(req.Packet))
+	if val, err := rfc4679.MaximumDataRateDownstream_Lookup(req.Packet); err == nil {
+		sess.MaxDownloadRate = int(val)
+	}
+
+	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req.Packet); err == nil {
+		sess.MaxUploadRate = int(val)
+	}
 
 	slog.Info("RADIUS DAC: CoA OK",
 		slog.String("sid", sess.ID.String()),
-		slog.Int("max_rx", sess.MaxDataRateRx),
-		slog.Int("max_tx", sess.MaxDataRateTx),
+		slog.Int("max_dl", sess.MaxDownloadRate),
+		slog.Int("max_up", sess.MaxUploadRate),
 		slog.Duration("idle_t", sess.IdleTimeout),
 		slog.String("dac_addr", req.RemoteAddr.String()))
 

@@ -13,14 +13,11 @@ import (
 )
 
 type Session struct {
-	ID          uuid.UUID
-	UserName    *string
-	ClientID    string
-	IdleTimeout time.Duration
+	SessionOptions
 
-	//	Max total RX/TX data rate per sessio
-	MaxDataRateRx int
-	MaxDataRateTx int
+	ID       uuid.UUID
+	UserName *string
+	ClientID string
 
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
@@ -41,6 +38,15 @@ type Session struct {
 	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 	cc        atomic.Int64
+}
+
+type SessionOptions struct {
+	Timeout                  time.Duration
+	IdleTimeout              time.Duration
+	MaxConcurrentConnections int
+	EnforceTotalBandwidth    bool
+	MaxDownloadRate          int
+	MaxUploadRate            int
 }
 
 func (this *Session) Context() context.Context {
@@ -153,10 +159,11 @@ func (this *CredentialsMiss) Expired() bool {
 }
 
 //	todo: add to radius
-//	todo: add to config
 //	todo: handle session bandwidth enforcement
 
-// SessionConfig provides default session options. These options can be overriden by radius
+// SessionConfig provides default session options.
+//
+//	These options can be overriden by radius
 type SessionConfig struct {
 	Timeout                  string `yaml:"timeout"`
 	IdleTimeout              string `yaml:"idle_timeout"`
@@ -194,6 +201,8 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 			opts.IdleTimeout = val
 		}
 	}
+
+	//	todo: double validate
 
 	if this.MaxConcurrentConnections < 0 {
 		return opts, fmt.Errorf("max_concurrent_connections value invalid")
@@ -235,13 +244,4 @@ func (this SessionConfig) Unwrap() SessionOptions {
 	}
 
 	return opts
-}
-
-type SessionOptions struct {
-	Timeout                  time.Duration
-	IdleTimeout              time.Duration
-	MaxConcurrentConnections int
-	EnforceTotalBandwidth    bool
-	MaxDownloadRate          int
-	MaxUploadRate            int
 }

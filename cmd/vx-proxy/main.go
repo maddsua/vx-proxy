@@ -98,7 +98,7 @@ func main() {
 		setCustomDns(cfg.Dns.Server)
 	}
 
-	authc, err := auth.NewRadiusController(cfg.Auth.Radius)
+	authc, err := auth.NewRadiusController(cfg.Auth.Radius, cfg.Auth.Session.Unwrap())
 	if err != nil {
 		slog.Error("Failed to start radius controller",
 			slog.String("err", err.Error()))
