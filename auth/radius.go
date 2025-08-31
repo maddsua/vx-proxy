@@ -85,14 +85,14 @@ func (this RadiusConfig) BindsPorts() []string {
 	return ports
 }
 
-func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
+func NewRadiusController(protoCfg RadiusConfig) (*radiusController, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	this := &radiusController{
-		authAddr:  cfg.AuthAddr,
-		acctAddr:  cfg.AcctAddr,
-		secret:    []byte(cfg.Secret),
+		authAddr:  protoCfg.AuthAddr,
+		acctAddr:  protoCfg.AcctAddr,
+		secret:    []byte(protoCfg.Secret),
 		ctx:       ctx,
 		cancelCtx: cancel,
 
@@ -103,7 +103,7 @@ func NewRadiusController(cfg RadiusConfig) (*radiusController, error) {
 	this.dacServer = &radius.PacketServer{
 		Handler:      radius.HandlerFunc(this.dacHandler),
 		SecretSource: radius.StaticSecretSource(this.secret),
-		Addr:         cfg.ListenDAC,
+		Addr:         protoCfg.ListenDAC,
 	}
 
 	var err error

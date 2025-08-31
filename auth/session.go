@@ -150,3 +150,43 @@ type CredentialsMiss struct {
 func (this *CredentialsMiss) Expired() bool {
 	return !this.Expires.IsZero() && this.Expires.Before(time.Now())
 }
+
+//	todo: add to radius
+//	todo: add to config
+//	todo: handle session bandwidth enforcement
+
+type SessionConfig struct {
+	Timeout                  string `yaml:"timeout"`
+	IdleTimeout              string `yaml:"idle_timeout"`
+	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
+	EnforceTotalBandwidth    bool   `yaml:"enforce_total_bandwidth"`
+	MaxDownloadRate          int    `yaml:"max_download_rate"`
+	MaxUploadRate            int    `yaml:"max_upload_rate"`
+}
+
+func (this SessionConfig) Parse() (SessionOptions, error) {
+
+	opts := SessionOptions{}
+
+	//	todo: parse
+
+	return opts, nil
+}
+
+func (this SessionConfig) Unwrap() SessionOptions {
+
+	opts, _ := this.Parse()
+
+	//	todo: apply defaults
+
+	return opts
+}
+
+type SessionOptions struct {
+	Timeout                  time.Duration
+	IdleTimeout              time.Duration
+	MaxConcurrentConnections int
+	EnforceTotalBandwidth    bool
+	MaxDownloadRate          int
+	MaxUploadRate            int
+}
