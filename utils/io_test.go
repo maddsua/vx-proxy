@@ -1,4 +1,4 @@
-package vxproxy
+package utils_test
 
 import (
 	"bytes"
