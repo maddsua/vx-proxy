@@ -1,9 +1,9 @@
 package http
 
 import (
+	"bytes"
 	"io"
 	"sync/atomic"
-	"time"
 
 	"github.com/maddsua/vx-proxy/utils"
 )
@@ -16,20 +16,34 @@ type BodyReader struct {
 
 func (this *BodyReader) Read(buff []byte) (int, error) {
 
-	size, err := this.Reader.Read(buff)
+	//	todo: test
 
-	if this.Acct != nil {
-		this.Acct.Add(int64(size))
+	var acct = func(delta int) {
+		if this.Acct != nil {
+			this.Acct.Add(int64(delta))
+		}
 	}
 
 	if this.MaxRate != nil {
-		if limit, has := this.MaxRate.Limit(); has {
-			//	this isn't optimal and will ondershoot the speed
-			//	but it's the best shot with the current http implementation
-			expected := time.Duration((int64(time.Second) * int64(size)) / int64(limit))
-			time.Sleep(expected)
+
+		if chunker := this.MaxRate.Chunker(); chunker != nil {
+
+			chunker.Start()
+
+			size, err := io.CopyN(bytes.NewBuffer(buff), this.Reader, int64(chunker.Size()))
+
+			if err != nil {
+				chunker.Wait()
+			}
+
+			acct(int(size))
+
+			return int(size), err
 		}
 	}
+
+	size, err := this.Reader.Read(buff)
+	acct(size)
 
 	return size, err
 }

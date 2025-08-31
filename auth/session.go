@@ -121,49 +121,51 @@ func (this *Session) closeDependencies() {
 	}
 }
 
+// todo: rename: BandwidthRx
 func (this *Session) ConnectionMaxRx() dynamicSpeedLimiter {
 
 	if this.EnforceTotalBandwidth {
 		return dynamicSpeedLimiter{
-			maxrate: this.MaxRxRate,
-			conns:   &this.cc,
+			bandwidth: this.MaxRxRate,
+			peers:     &this.cc,
 		}
 	}
 
-	return dynamicSpeedLimiter{maxrate: this.MaxRxRate}
+	return dynamicSpeedLimiter{bandwidth: this.MaxRxRate}
 }
 
+// todo: rename: BandwidthTx
 func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
 
 	if this.EnforceTotalBandwidth {
 		return dynamicSpeedLimiter{
-			maxrate: this.MaxTxRate,
-			conns:   &this.cc,
+			bandwidth: this.MaxTxRate,
+			peers:     &this.cc,
 		}
 	}
 
-	return dynamicSpeedLimiter{maxrate: this.MaxTxRate}
+	return dynamicSpeedLimiter{bandwidth: this.MaxTxRate}
 }
 
 type dynamicSpeedLimiter struct {
-	maxrate int
-	conns   *atomic.Int64
+	bandwidth int
+	peers     *atomic.Int64
 }
 
-func (this dynamicSpeedLimiter) Limit() (int, bool) {
+func (this dynamicSpeedLimiter) Chunker() *utils.IoChunker {
 
-	if this.maxrate <= 0 {
-		return 0, false
-	} else if this.conns == nil {
-		return this.maxrate, true
+	if this.bandwidth <= 0 {
+		return nil
+	} else if this.peers == nil {
+		return &utils.IoChunker{Bandwidth: this.bandwidth}
 	}
 
-	count := this.conns.Load()
+	count := this.peers.Load()
 	if count <= 1 {
-		return this.maxrate, true
+		return &utils.IoChunker{Bandwidth: this.bandwidth}
 	}
 
-	return this.maxrate / int(count), true
+	return &utils.IoChunker{Bandwidth: this.bandwidth / int(count)}
 }
 
 type CredentialsMiss struct {

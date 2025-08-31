@@ -34,7 +34,40 @@ func ReadByte(reader io.Reader) (byte, error) {
 }
 
 type SpeedLimiter interface {
-	Limit() (int, bool)
+	Chunker() *IoChunker
+}
+
+// Chunker implements data transfer speed control
+type IoChunker struct {
+	Bandwidth int
+	started   time.Time
+	done      bool
+}
+
+func (this *IoChunker) Size() int {
+	//	defaults to 128 KBIT/s just in case
+	const defaultSize = 16 * 1024
+	if this.Bandwidth > 0 {
+		//	convert bandwidth to block size in bytes
+		return this.Bandwidth / 8
+	}
+	return defaultSize
+}
+
+func (this *IoChunker) Start() {
+	this.started = time.Now()
+}
+
+func (this *IoChunker) Wait() {
+
+	if this.done {
+		return
+	}
+
+	if delta := time.Second - time.Since(this.started); delta > 0 {
+		time.Sleep(delta)
+		this.done = true
+	}
 }
 
 // Piper splices two network connections into one and acts as a middleman between the hosts.
@@ -86,16 +119,27 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 	return
 }
 
+//	todo: test
+
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
 func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
 
-	const chunkSize = 32 * 1024
+	const defaultChunkSize = 32 * 1024
 
 	for ctx.Err() == nil {
 
-		copyStarted := time.Now()
+		var chunker *IoChunker
+		chunkSize := defaultChunkSize
 
-		written, err := io.CopyN(dst, src, chunkSize)
+		if limiter != nil {
+			chunker = limiter.Chunker()
+			if chunker != nil {
+				chunkSize = chunker.Size()
+				chunker.Start()
+			}
+		}
+
+		written, err := io.CopyN(dst, src, int64(chunkSize))
 		if written > 0 && acct != nil {
 			acct.Add(written)
 		}
@@ -111,15 +155,8 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 			return err
 		}
 
-		//	apply speed limiting by calculating ideal chunk copy time
-		//	and waiting any extra time if the operation was completed sooner
-		if limiter != nil && written > 0 {
-			if limit, has := limiter.Limit(); has {
-				expected := time.Duration((int64(time.Second) * written) / int64(limit))
-				if delta := expected - time.Since(copyStarted); delta > 0 {
-					time.Sleep(delta)
-				}
-			}
+		if chunker != nil {
+			chunker.Wait()
 		}
 	}
 
