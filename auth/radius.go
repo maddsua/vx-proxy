@@ -485,7 +485,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	}
 
 	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req); err == nil {
-		sess.MaxUploadRate = int(val)
+		sess.MaxTxRate = int(val)
 	}
 
 	sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), sess.Timeout)
@@ -674,13 +674,13 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 	}
 
 	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req.Packet); err == nil {
-		sess.MaxUploadRate = int(val)
+		sess.MaxTxRate = int(val)
 	}
 
 	slog.Info("RADIUS DAC: CoA OK",
 		slog.String("sid", sess.ID.String()),
 		slog.Int("max_dl", sess.MaxRxRate),
-		slog.Int("max_up", sess.MaxUploadRate),
+		slog.Int("max_up", sess.MaxTxRate),
 		slog.Duration("idle_t", sess.IdleTimeout),
 		slog.String("dac_addr", req.RemoteAddr.String()))
 

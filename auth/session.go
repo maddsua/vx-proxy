@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maddsua/vx-proxy/utils"
 )
 
 type Session struct {
@@ -46,7 +47,7 @@ type SessionOptions struct {
 	MaxConcurrentConnections int
 	EnforceTotalBandwidth    bool
 	MaxRxRate                int
-	MaxUploadRate            int
+	MaxTxRate                int
 }
 
 func (this *Session) Context() context.Context {
@@ -132,12 +133,12 @@ func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
 
 	if this.EnforceTotalBandwidth {
 		return dynamicSpeedLimiter{
-			maxrate: this.MaxUploadRate,
+			maxrate: this.MaxTxRate,
 			conns:   &this.cc,
 		}
 	}
 
-	return dynamicSpeedLimiter{maxrate: this.MaxUploadRate}
+	return dynamicSpeedLimiter{maxrate: this.MaxTxRate}
 }
 
 type dynamicSpeedLimiter struct {
@@ -178,8 +179,8 @@ type SessionConfig struct {
 	IdleTimeout              string `yaml:"idle_timeout"`
 	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
 	EnforceTotalBandwidth    bool   `yaml:"enforce_total_bandwidth"`
-	MaxDownloadRate          int    `yaml:"max_download_rate"`
-	MaxUploadRate            int    `yaml:"max_upload_rate"`
+	MaxDownloadRate          string `yaml:"max_download_rate"`
+	MaxUploadRate            string `yaml:"max_upload_rate"`
 }
 
 func (this SessionConfig) Parse() (SessionOptions, error) {
@@ -187,8 +188,6 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 	opts := SessionOptions{
 		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
 		MaxConcurrentConnections: this.MaxConcurrentConnections,
-		MaxRxRate:                this.MaxDownloadRate,
-		MaxUploadRate:            this.MaxUploadRate,
 	}
 
 	if this.Timeout != "" {
@@ -211,18 +210,24 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		}
 	}
 
-	//	todo: double validate
-
 	if this.MaxConcurrentConnections < 0 {
 		return opts, fmt.Errorf("max_concurrent_connections value invalid")
 	}
 
-	if this.MaxDownloadRate < 0 {
-		return opts, fmt.Errorf("max_download_rate value invalid")
+	if this.MaxDownloadRate != "" {
+		if val, err := utils.ParseDataRate(this.MaxDownloadRate); err != nil {
+			return opts, fmt.Errorf("error parsing max_download_rate: %v", err)
+		} else {
+			opts.MaxRxRate = val
+		}
 	}
 
-	if this.MaxUploadRate < 0 {
-		return opts, fmt.Errorf("max_upload_rate value invalid")
+	if this.MaxUploadRate != "" {
+		if val, err := utils.ParseDataRate(this.MaxUploadRate); err != nil {
+			return opts, fmt.Errorf("error parsing max_upload_rate: %v", err)
+		} else {
+			opts.MaxTxRate = val
+		}
 	}
 
 	return opts, nil
@@ -248,8 +253,8 @@ func (this SessionConfig) Unwrap() SessionOptions {
 		opts.MaxRxRate = 50_000_000
 	}
 
-	if opts.MaxUploadRate == 0 {
-		opts.MaxUploadRate = 25_000_000
+	if opts.MaxTxRate == 0 {
+		opts.MaxTxRate = 25_000_000
 	}
 
 	return opts
