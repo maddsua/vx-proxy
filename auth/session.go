@@ -45,7 +45,7 @@ type SessionOptions struct {
 	IdleTimeout              time.Duration
 	MaxConcurrentConnections int
 	EnforceTotalBandwidth    bool
-	MaxDownloadRate          int
+	MaxRxRate                int
 	MaxUploadRate            int
 }
 
@@ -117,17 +117,27 @@ func (this *Session) closeDependencies() {
 }
 
 func (this *Session) ConnectionMaxRx() dynamicSpeedLimiter {
-	return dynamicSpeedLimiter{
-		maxrate: this.MaxDataRateRx,
-		conns:   &this.cc,
+
+	if this.EnforceTotalBandwidth {
+		return dynamicSpeedLimiter{
+			maxrate: this.MaxRxRate,
+			conns:   &this.cc,
+		}
 	}
+
+	return dynamicSpeedLimiter{maxrate: this.MaxRxRate}
 }
 
 func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
-	return dynamicSpeedLimiter{
-		maxrate: this.MaxDataRateTx,
-		conns:   &this.cc,
+
+	if this.EnforceTotalBandwidth {
+		return dynamicSpeedLimiter{
+			maxrate: this.MaxUploadRate,
+			conns:   &this.cc,
+		}
 	}
+
+	return dynamicSpeedLimiter{maxrate: this.MaxUploadRate}
 }
 
 type dynamicSpeedLimiter struct {
@@ -139,6 +149,8 @@ func (this dynamicSpeedLimiter) Limit() (int, bool) {
 
 	if this.maxrate <= 0 {
 		return 0, false
+	} else if this.conns == nil {
+		return this.maxrate, true
 	}
 
 	count := this.conns.Load()
@@ -158,9 +170,6 @@ func (this *CredentialsMiss) Expired() bool {
 	return !this.Expires.IsZero() && this.Expires.Before(time.Now())
 }
 
-//	todo: add to radius
-//	todo: handle session bandwidth enforcement
-
 // SessionConfig provides default session options.
 //
 //	These options can be overriden by radius
@@ -178,7 +187,7 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 	opts := SessionOptions{
 		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
 		MaxConcurrentConnections: this.MaxConcurrentConnections,
-		MaxDownloadRate:          this.MaxDownloadRate,
+		MaxRxRate:                this.MaxDownloadRate,
 		MaxUploadRate:            this.MaxUploadRate,
 	}
 
@@ -235,8 +244,8 @@ func (this SessionConfig) Unwrap() SessionOptions {
 		opts.MaxConcurrentConnections = 256
 	}
 
-	if opts.MaxDownloadRate == 0 {
-		opts.MaxDownloadRate = 50_000_000
+	if opts.MaxRxRate == 0 {
+		opts.MaxRxRate = 50_000_000
 	}
 
 	if opts.MaxUploadRate == 0 {
