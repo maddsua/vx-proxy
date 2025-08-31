@@ -18,6 +18,8 @@ import (
 	"github.com/maddsua/vx-proxy/auth"
 )
 
+//	todo: hide forward proxy behind a flag
+
 type HttpProxy struct {
 	Auth auth.Controller
 	Dns  *net.Resolver
