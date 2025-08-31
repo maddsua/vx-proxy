@@ -150,20 +150,20 @@ type bandwidthCtl struct {
 	peers     *atomic.Int64
 }
 
-func (this bandwidthCtl) Chunker() *utils.IoChunker {
+func (this bandwidthCtl) Bandwidth() (int, bool) {
 
 	if this.bandwidth <= 0 {
-		return nil
+		return 0, false
 	} else if this.peers == nil {
-		return &utils.IoChunker{Bandwidth: this.bandwidth}
+		return this.bandwidth, true
 	}
 
-	count := this.peers.Load()
-	if count <= 1 {
-		return &utils.IoChunker{Bandwidth: this.bandwidth}
+	peers := this.peers.Load()
+	if peers <= 1 {
+		return this.bandwidth, true
 	}
 
-	return &utils.IoChunker{Bandwidth: this.bandwidth / int(count)}
+	return this.bandwidth / int(peers), true
 }
 
 type CredentialsMiss struct {

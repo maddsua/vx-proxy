@@ -1,9 +1,9 @@
 package http
 
 import (
-	"bytes"
 	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/maddsua/vx-proxy/utils"
 )
@@ -16,8 +16,6 @@ type BodyReader struct {
 
 func (this *BodyReader) Read(buff []byte) (int, error) {
 
-	//	todo: test
-
 	var acct = func(delta int) {
 		if this.Acct != nil {
 			this.Acct.Add(int64(delta))
@@ -26,15 +24,19 @@ func (this *BodyReader) Read(buff []byte) (int, error) {
 
 	if this.MaxRate != nil {
 
-		if chunker := this.MaxRate.Chunker(); chunker != nil {
+		if bandwidth, has := this.MaxRate.Bandwidth(); has {
 
-			chunker.Start()
+			copyStarted := time.Now()
 
-			size, err := io.CopyN(bytes.NewBuffer(buff), this.Reader, int64(chunker.Size()))
+			chunkSize := min(utils.ChunkSizeFor(bandwidth), len(buff))
+			chunk := make([]byte, chunkSize)
 
-			if err != nil {
-				chunker.Wait()
+			size, err := this.Reader.Read(chunk)
+			if err == nil {
+				utils.ChunkSlowdown(chunkSize, bandwidth, copyStarted)
 			}
+
+			copyN(buff, chunk, size)
 
 			acct(int(size))
 
@@ -53,4 +55,10 @@ func (this *BodyReader) Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+func copyN(dst []byte, src []byte, n int) {
+	for idx := range min(len(dst), len(src), n) {
+		dst[idx] = src[idx]
+	}
 }

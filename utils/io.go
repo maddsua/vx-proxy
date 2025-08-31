@@ -33,44 +33,8 @@ func ReadByte(reader io.Reader) (byte, error) {
 	return buff[0], err
 }
 
-// Bandwidther provides a way to dinamically dispatch IoChunker during IO operations. This allows to update connection speed without having to reset it
 type Bandwidther interface {
-	Chunker() *IoChunker
-}
-
-// Chunker implements data transfer speed controls.
-//
-// A typical use case is to mark copy operation start with Start(), copy Size() bytes to the destination and use Wait() to create an IO operation delay that's proportional to the target speed
-type IoChunker struct {
-	Bandwidth int
-	started   time.Time
-	done      bool
-}
-
-func (this *IoChunker) Size() int {
-	//	defaults to 128 KBIT/s just in case
-	const defaultSize = 16 * 1024
-	if this.Bandwidth > 0 {
-		//	convert bandwidth to block size in bytes
-		return this.Bandwidth / 8
-	}
-	return defaultSize
-}
-
-func (this *IoChunker) Start() {
-	this.started = time.Now()
-}
-
-func (this *IoChunker) Wait() {
-
-	if this.done {
-		return
-	}
-
-	if delta := time.Second - time.Since(this.started); delta > 0 {
-		time.Sleep(delta)
-		this.done = true
-	}
+	Bandwidth() (int, bool)
 }
 
 // Piper splices two network connections into one and acts as a middleman between the hosts.
@@ -122,25 +86,22 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 	return
 }
 
-//	todo: test
-
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
 func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct *atomic.Int64) error {
 
-	const defaultChunkSize = 32 * 1024
+	var copyStarted time.Time
 
 	for ctx.Err() == nil {
 
-		var chunker *IoChunker
-		chunkSize := defaultChunkSize
-
+		var bandwidth int
 		if limiter != nil {
-			chunker = limiter.Chunker()
-			if chunker != nil {
-				chunkSize = chunker.Size()
-				chunker.Start()
+			if val, has := limiter.Bandwidth(); has {
+				bandwidth = val
 			}
 		}
+
+		chunkSize := ChunkSizeFor(bandwidth)
+		copyStarted = time.Now()
 
 		written, err := io.CopyN(dst, src, int64(chunkSize))
 		if written > 0 && acct != nil {
@@ -151,17 +112,55 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 			flusher.Flush()
 		}
 
-		if err != nil {
-			if ctx.Err() != nil || err == io.EOF {
-				return nil
-			}
+		if err == io.EOF {
+			break
+		} else if err != nil {
 			return err
 		}
 
-		if chunker != nil {
-			chunker.Wait()
+		if bandwidth > 0 {
+			ChunkSlowdown(chunkSize, bandwidth, copyStarted)
 		}
 	}
 
 	return nil
+}
+
+// Creates a fake io delay to achieve a target data transfer rate
+func ChunkSlowdown(size int, bandwidth int, started time.Time) {
+
+	elapsed := time.Since(started)
+
+	//	using a hacky ass formula: to_bits(size)*0.95
+	volume := ((size * 8) * 95) / 100
+	expected := time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
+
+	if elapsed < expected && expected < time.Second {
+		time.Sleep(expected - elapsed)
+	}
+}
+
+// This wacky lookup table is here to try to fix bandwidth deviations
+// caused by inaccurate system timers and various unaccounted I/O delays
+func ChunkSizeFor(bandwidth int) int {
+	switch {
+	case bandwidth > 1_000_000_000:
+		return 10 * 1024 * 1024
+	case bandwidth > 300_000_000:
+		return 4 * 1024 * 1024
+	case bandwidth > 150_000_000:
+		return 2 * 1024 * 1024
+	case bandwidth > 100_000_000:
+		return 1024 * 1024
+	case bandwidth > 50_000_000:
+		return 256 * 1024
+	case bandwidth > 25_000_000:
+		return 128 * 1024
+	case bandwidth > 10_000_000:
+		return 64 * 1024
+	case bandwidth > 1_000_000:
+		return 32 * 1024
+	default:
+		return 16 * 1024
+	}
 }
