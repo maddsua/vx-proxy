@@ -667,8 +667,6 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 
 	if idleTimeout := rfc2865.IdleTimeout_Get(req.Packet); idleTimeout > 0 {
 		sess.IdleTimeout = time.Duration(idleTimeout) * time.Second
-	} else {
-		sess.IdleTimeout = 0
 	}
 
 	if val, err := rfc4679.MaximumDataRateDownstream_Lookup(req.Packet); err == nil {
