@@ -422,6 +422,8 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		return nil, fmt.Errorf("radius access request failed: %v", err)
 	}
 
+	req = nil
+
 	if resp.Code == radius.CodeAccessReject {
 		return nil, ErrUnauthorized
 	} else if resp.Code != radius.CodeAccessAccept {
@@ -482,11 +484,11 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		sess.IdleTimeout = time.Duration(val) * time.Second
 	}
 
-	if val, err := rfc4679.MaximumDataRateDownstream_Lookup(req); err == nil {
+	if val := rfc4679.MaximumDataRateDownstream_Get(resp); val > 0 {
 		sess.MaxRxRate = int(val)
 	}
 
-	if val, err := rfc4679.MaximumDataRateUpstream_Lookup(req); err == nil {
+	if val := rfc4679.MaximumDataRateUpstream_Get(resp); val > 0 {
 		sess.MaxTxRate = int(val)
 	}
 
@@ -669,11 +671,11 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		sess.IdleTimeout = time.Duration(idleTimeout) * time.Second
 	}
 
-	if val, err := rfc4679.MaximumDataRateDownstream_Lookup(req.Packet); err == nil {
+	if val := rfc4679.MaximumDataRateDownstream_Get(req.Packet); val > 0 {
 		sess.MaxRxRate = int(val)
 	}
 
-	if val, err := rfc4679.MaximumDataRateUpstream_Lookup(req.Packet); err == nil {
+	if val := rfc4679.MaximumDataRateUpstream_Get(req.Packet); val > 0 {
 		sess.MaxTxRate = int(val)
 	}
 

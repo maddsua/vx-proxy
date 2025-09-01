@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 
@@ -18,17 +19,17 @@ type authenticator struct {
 	Users []UserConfig
 }
 
-func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request) {
+func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Request) {
 
-	if r.Code != radius.CodeAccessRequest {
+	if req.Code != radius.CodeAccessRequest {
 		slog.Warn("invalid auth handler packet",
-			slog.Int("code", int(r.Code)),
-			slog.String("code_text", r.Code.String()))
+			slog.Int("code", int(req.Code)),
+			slog.String("code_text", req.Code.String()))
 		return
 	}
 
-	username := rfc2865.UserName_GetString(r.Packet)
-	password := rfc2865.UserPassword_GetString(r.Packet)
+	username := rfc2865.UserName_GetString(req.Packet)
+	password := rfc2865.UserPassword_GetString(req.Packet)
 
 	var user *UserConfig
 	for _, entry := range this.Users {
@@ -38,16 +39,16 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 		}
 	}
 
-	clientIP := net.IP(rfc5580.LocationData_Get(r.Packet))
-	nasIP := net.IP(rfc2865.NASIPAddress_Get(r.Packet))
+	clientIP := net.IP(rfc5580.LocationData_Get(req.Packet))
+	nasIP := net.IP(rfc2865.NASIPAddress_Get(req.Packet))
 	if nasIP == nil {
-		nasIP = net.IP(rfc3162.NASIPv6Address_Get(r.Packet))
+		nasIP = net.IP(rfc3162.NASIPv6Address_Get(req.Packet))
 	}
 
-	nasPort := rfc2865.NASPort_Get(r.Packet)
+	nasPort := rfc2865.NASPort_Get(req.Packet)
 
 	if user == nil {
-		w.Write(r.Response(radius.CodeAccessReject))
+		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: Invalid password",
 			slog.String("username", username),
 			slog.String("password", password),
@@ -58,9 +59,9 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 	}
 
 	if user.ProxyAddr != "" && user.ProxyAddr != nasIP.String() {
-		w.Write(r.Response(radius.CodeAccessReject))
+		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: ProxyAddr denied",
-			slog.String("nas_addr", r.RemoteAddr.String()),
+			slog.String("nas_addr", req.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
@@ -70,9 +71,9 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 	}
 
 	if user.ProxyPort != 0 && user.ProxyPort != int(nasPort) {
-		w.Write(r.Response(radius.CodeAccessReject))
+		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: Port denied",
-			slog.String("nas_addr", r.RemoteAddr.String()),
+			slog.String("nas_addr", req.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
@@ -81,9 +82,9 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 		return
 	}
 
-	response := r.Response(radius.CodeAccessAccept)
+	resp := req.Response(radius.CodeAccessAccept)
 	slog.Info("Auth: Accepted",
-		slog.String("nas_addr", r.RemoteAddr.String()),
+		slog.String("nas_addr", req.RemoteAddr.String()),
 		slog.String("username", username),
 		slog.String("password", password),
 		slog.String("client_ip", clientIP.String()),
@@ -91,25 +92,36 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, r *radius.Request
 		slog.Int("nas_port", int(nasPort)))
 
 	if user.MaxRx > 0 {
-		rfc4679.MaximumDataRateDownstream_Set(response, rfc4679.MaximumDataRateDownstream(user.MaxRx))
+		if err := rfc4679.MaximumDataRateDownstream_Set(resp, rfc4679.MaximumDataRateDownstream(user.MaxRx)); err != nil {
+			panic(fmt.Errorf("rfc4679.MaximumDataRateDownstream_Set: %v", err))
+		}
 	}
 
 	if user.MaxTx > 0 {
-		rfc4679.MaximumDataRateUpstream_Set(response, rfc4679.MaximumDataRateUpstream(user.MaxTx))
+		if err := rfc4679.MaximumDataRateUpstream_Set(resp, rfc4679.MaximumDataRateUpstream(user.MaxTx)); err != nil {
+			panic(fmt.Errorf("rfc4679.MaximumDataRateUpstream_Set: %v", err))
+		}
 	}
 
 	if user.SessionTTL > 0 {
-		rfc2865.SessionTimeout_Set(response, rfc2865.SessionTimeout(user.SessionTTL))
+		if err := rfc2865.SessionTimeout_Set(resp, rfc2865.SessionTimeout(user.SessionTTL)); err != nil {
+			panic(fmt.Errorf("rfc2865.SessionTimeout_Set: %v", err))
+		}
 	}
 
 	sessionID := uuid.New()
-	rfc2866.AcctSessionID_Set(response, sessionID[:])
+
+	if err := rfc2866.AcctSessionID_Set(resp, sessionID[:]); err != nil {
+		panic(fmt.Errorf("rfc2866.AcctSessionID_Set: %v", err))
+	}
 
 	userID := uuid.New()
-	rfc4372.ChargeableUserIdentity_Set(response, userID[:])
 
-	w.Write(response)
+	if err := rfc4372.ChargeableUserIdentity_Set(resp, userID[:]); err != nil {
+		panic(fmt.Errorf("rfc4372.ChargeableUserIdentity_Set: %v", err))
+	}
 
+	w.Write(resp)
 }
 
 func acctHandler(w radius.ResponseWriter, r *radius.Request) {

@@ -152,7 +152,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("sid", sess.ID.String()))
-			wrt.WriteHeader(http.StatusBadRequest)
+			wrt.WriteHeader(http.StatusNotImplemented)
 			return
 		}
 
