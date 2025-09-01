@@ -195,23 +195,23 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 	}
 
 	if this.Timeout != "" {
-		if val, err := time.ParseDuration(this.Timeout); err != nil {
+		val, err := time.ParseDuration(this.Timeout)
+		if err != nil {
 			return opts, fmt.Errorf("error parsing timeout: %v", err)
 		} else if val < time.Second {
 			return opts, fmt.Errorf("timeout value too small")
-		} else {
-			opts.Timeout = val
 		}
+		opts.Timeout = val
 	}
 
 	if this.IdleTimeout != "" {
-		if val, err := time.ParseDuration(this.IdleTimeout); err != nil {
+		val, err := time.ParseDuration(this.IdleTimeout)
+		if err != nil {
 			return opts, fmt.Errorf("error parsing idle_timeout: %v", err)
 		} else if val < time.Second {
 			return opts, fmt.Errorf("idle_timeout value too small")
-		} else {
-			opts.IdleTimeout = val
 		}
+		opts.IdleTimeout = val
 	}
 
 	if this.MaxConcurrentConnections < 0 {
@@ -219,19 +219,19 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 	}
 
 	if this.MaxDownloadRate != "" {
-		if val, err := utils.ParseDataRate(this.MaxDownloadRate); err != nil {
+		val, err := utils.ParseDataRate(this.MaxDownloadRate)
+		if err != nil {
 			return opts, fmt.Errorf("error parsing max_download_rate: %v", err)
-		} else {
-			opts.MaxRxRate = val
 		}
+		opts.MaxRxRate = val
 	}
 
 	if this.MaxUploadRate != "" {
-		if val, err := utils.ParseDataRate(this.MaxUploadRate); err != nil {
+		val, err := utils.ParseDataRate(this.MaxUploadRate)
+		if err != nil {
 			return opts, fmt.Errorf("error parsing max_upload_rate: %v", err)
-		} else {
-			opts.MaxTxRate = val
 		}
+		opts.MaxTxRate = val
 	}
 
 	return opts, nil
