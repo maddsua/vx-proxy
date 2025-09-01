@@ -559,6 +559,8 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 
 		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
 
+		//	todo: insert io accounting and limiting here
+
 		sess.FramedHttpClient = &http.Client{
 			Transport: &http.Transport{
 				DialContext:           dialer.DialContext,
