@@ -368,7 +368,9 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 		slog.String("method", "passwd"),
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
-		slog.String("user", sess.ClientID))
+		slog.String("user", sess.ClientID),
+		slog.Int("max_dl", sess.MaxRxRate),
+		slog.Int("max_up", sess.MaxTxRate))
 
 	this.sessState.Store(sessKey, sess)
 
