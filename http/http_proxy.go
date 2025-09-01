@@ -19,8 +19,13 @@ import (
 )
 
 type HttpProxy struct {
+	HandlerConfig
 	Auth auth.Controller
 	Dns  *net.Resolver
+}
+
+type HandlerConfig struct {
+	ForwardEnable bool `yaml:"forward_enable"`
 }
 
 func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
@@ -82,6 +87,17 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if !sess.CanAcceptConnection() {
+		slog.Debug("HTTP proxy: Session: Too many connections",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		wrt.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
 	sess.TrackConn()
 	defer sess.ConnDone()
 
@@ -90,7 +106,8 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		slog.Debug("HTTP proxy: Unable to determine target host",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()))
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()))
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -128,6 +145,17 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		this.ServeTunnel(conn, rw, sess, dstHost)
 
 	default:
+
+		if !this.ForwardEnable {
+			slog.Debug("HTTP proxy: Forward disabled",
+				slog.String("nas_addr", nasIP.String()),
+				slog.Int("nas_port", nasPort),
+				slog.String("client_ip", clientIP.String()),
+				slog.String("sid", sess.ID.String()))
+			wrt.WriteHeader(http.StatusNotImplemented)
+			return
+		}
+
 		this.ServeForward(wrt, req, sess)
 	}
 }
@@ -245,7 +273,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			return
 		}
 
-		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
+		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.BandwidthRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -282,8 +310,8 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		RxAcct: &sess.AcctRxBytes,
 		TxAcct: &sess.AcctTxBytes,
 
-		RxMaxRate: sess.ConnectionMaxRx(),
-		TxMaxRate: sess.ConnectionMaxTx(),
+		RxMaxRate: sess.BandwidthRx(),
+		TxMaxRate: sess.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {
@@ -306,7 +334,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	bodyReader := BodyReader{
 		Reader:  req.Body,
 		Acct:    &sess.AcctTxBytes,
-		MaxRate: sess.ConnectionMaxTx(),
+		MaxRate: sess.BandwidthTx(),
 	}
 
 	wrt.Header().Del("Server")
@@ -392,7 +420,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	go func() {
 
-		if err := utils.PipeIO(req.Context(), wrt, resp.Body, sess.ConnectionMaxRx(), &sess.AcctRxBytes); err != nil {
+		if err := utils.PipeIO(req.Context(), wrt, resp.Body, sess.BandwidthRx(), &sess.AcctRxBytes); err != nil {
 			slog.Debug("HTTP forward: Copy body failed",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -530,6 +558,8 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 		}
 
 		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
+
+		//	todo: insert io accounting and limiting here
 
 		sess.FramedHttpClient = &http.Client{
 			Transport: &http.Transport{

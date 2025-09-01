@@ -33,8 +33,8 @@ func ReadByte(reader io.Reader) (byte, error) {
 	return buff[0], err
 }
 
-type SpeedLimiter interface {
-	Limit() (int, bool)
+type Bandwidther interface {
+	Bandwidth() (int, bool)
 }
 
 // Piper splices two network connections into one and acts as a middleman between the hosts.
@@ -43,11 +43,11 @@ type SpeedLimiter interface {
 type ConnectionPiper struct {
 	Remote    net.Conn
 	RxAcct    *atomic.Int64
-	RxMaxRate SpeedLimiter
+	RxMaxRate Bandwidther
 
 	Client    net.Conn
 	TxAcct    *atomic.Int64
-	TxMaxRate SpeedLimiter
+	TxMaxRate Bandwidther
 }
 
 func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
@@ -87,15 +87,23 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimiter, acct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct *atomic.Int64) error {
 
-	const chunkSize = 32 * 1024
+	var copyStarted time.Time
 
 	for ctx.Err() == nil {
 
-		copyStarted := time.Now()
+		var bandwidth int
+		if limiter != nil {
+			if val, has := limiter.Bandwidth(); has {
+				bandwidth = val
+			}
+		}
 
-		written, err := io.CopyN(dst, src, chunkSize)
+		chunkSize := ChunkSizeFor(bandwidth)
+		copyStarted = time.Now()
+
+		written, err := io.CopyN(dst, src, int64(chunkSize))
 		if written > 0 && acct != nil {
 			acct.Add(written)
 		}
@@ -104,24 +112,60 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter SpeedLimi
 			flusher.Flush()
 		}
 
-		if err != nil {
-			if ctx.Err() != nil || err == io.EOF {
-				return nil
-			}
+		if err == io.EOF {
+			break
+		} else if err != nil {
 			return err
 		}
 
-		//	apply speed limiting by calculating ideal chunk copy time
-		//	and waiting any extra time if the operation was completed sooner
-		if limiter != nil && written > 0 {
-			if limit, has := limiter.Limit(); has {
-				expected := time.Duration((int64(time.Second) * written) / int64(limit))
-				if delta := expected - time.Since(copyStarted); delta > 0 {
-					time.Sleep(delta)
-				}
-			}
+		if bandwidth > 0 {
+			ChunkSlowdown(ctx, chunkSize, bandwidth, copyStarted)
 		}
 	}
 
 	return nil
+}
+
+// Creates a fake io delay to achieve a target data transfer rate
+func ChunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
+
+	elapsed := time.Since(started)
+
+	//	using a hacky ass formula: to_bits(size)*0.95
+	volume := ((size * 8) * 95) / 100
+	expected := time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
+
+	if elapsed >= expected {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(expected - elapsed):
+	}
+}
+
+// This wacky lookup table is here to try to fix bandwidth deviations
+// caused by inaccurate system timers and various unaccounted I/O delays
+func ChunkSizeFor(bandwidth int) int {
+	switch {
+	case bandwidth > 1_000_000_000:
+		return 10 * 1024 * 1024
+	case bandwidth > 300_000_000:
+		return 4 * 1024 * 1024
+	case bandwidth > 150_000_000:
+		return 2 * 1024 * 1024
+	case bandwidth > 100_000_000:
+		return 1024 * 1024
+	case bandwidth > 50_000_000:
+		return 256 * 1024
+	case bandwidth > 25_000_000:
+		return 128 * 1024
+	case bandwidth > 10_000_000:
+		return 64 * 1024
+	case bandwidth > 1_000_000:
+		return 32 * 1024
+	default:
+		return 16 * 1024
+	}
 }

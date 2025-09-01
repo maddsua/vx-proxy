@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -9,17 +10,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maddsua/vx-proxy/utils"
 )
 
 type Session struct {
-	ID          uuid.UUID
-	UserName    *string
-	ClientID    string
-	IdleTimeout time.Duration
+	SessionOptions
 
-	//	Max total RX/TX data rate per sessio
-	MaxDataRateRx int
-	MaxDataRateTx int
+	ID       uuid.UUID
+	UserName *string
+	ClientID string
 
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
@@ -40,6 +39,15 @@ type Session struct {
 	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 	cc        atomic.Int64
+}
+
+type SessionOptions struct {
+	Timeout                  time.Duration
+	IdleTimeout              time.Duration
+	MaxConcurrentConnections int
+	EnforceTotalBandwidth    bool
+	MaxRxRate                int
+	MaxTxRate                int
 }
 
 func (this *Session) Context() context.Context {
@@ -92,6 +100,10 @@ func (this *Session) Expired() bool {
 	return ok && deadline.Before(time.Now())
 }
 
+func (this *Session) CanAcceptConnection() bool {
+	return this.MaxConcurrentConnections <= 0 || this.cc.Load() < int64(this.MaxConcurrentConnections)
+}
+
 func (this *Session) Terminate() {
 
 	if this.cancelCtx != nil {
@@ -109,37 +121,59 @@ func (this *Session) closeDependencies() {
 	}
 }
 
-func (this *Session) ConnectionMaxRx() dynamicSpeedLimiter {
-	return dynamicSpeedLimiter{
-		maxrate: this.MaxDataRateRx,
-		conns:   &this.cc,
+func (this *Session) BandwidthRx() bandwidthCtl {
+
+	if this.EnforceTotalBandwidth {
+		return bandwidthCtl{
+			bandwidth: &this.MaxRxRate,
+			peers:     &this.cc,
+		}
 	}
+
+	return bandwidthCtl{bandwidth: &this.MaxRxRate}
 }
 
-func (this *Session) ConnectionMaxTx() dynamicSpeedLimiter {
-	return dynamicSpeedLimiter{
-		maxrate: this.MaxDataRateTx,
-		conns:   &this.cc,
+func (this *Session) BandwidthTx() bandwidthCtl {
+
+	if this.EnforceTotalBandwidth {
+		return bandwidthCtl{
+			bandwidth: &this.MaxTxRate,
+			peers:     &this.cc,
+		}
 	}
+
+	return bandwidthCtl{bandwidth: &this.MaxTxRate}
 }
 
-type dynamicSpeedLimiter struct {
-	maxrate int
-	conns   *atomic.Int64
+// bandwidthCtl keeps pointers to both current one-line (RX or TX) bandwidth limit
+// as well as a pointer to the total number of concurrent connections
+type bandwidthCtl struct {
+	bandwidth *int
+	peers     *atomic.Int64
 }
 
-func (this dynamicSpeedLimiter) Limit() (int, bool) {
+func (this bandwidthCtl) Bandwidth() (int, bool) {
 
-	if this.maxrate <= 0 {
+	if this.bandwidth == nil {
 		return 0, false
 	}
 
-	count := this.conns.Load()
-	if count <= 1 {
-		return this.maxrate, true
+	//	This is here to avoid having it's value changing under the pointer,
+	//	not to prevent pointer dereference bullshit. The pointer itself is never supposed to change
+	bandwidth := *this.bandwidth
+
+	if bandwidth <= 0 {
+		return 0, false
+	} else if this.peers == nil {
+		return bandwidth, true
 	}
 
-	return this.maxrate / int(count), true
+	peers := this.peers.Load()
+	if peers <= 1 {
+		return bandwidth, true
+	}
+
+	return bandwidth / int(peers), true
 }
 
 type CredentialsMiss struct {
@@ -149,4 +183,93 @@ type CredentialsMiss struct {
 
 func (this *CredentialsMiss) Expired() bool {
 	return !this.Expires.IsZero() && this.Expires.Before(time.Now())
+}
+
+// SessionConfig provides default session options.
+//
+//	These options can be overriden by radius
+type SessionConfig struct {
+	Timeout                  string `yaml:"timeout"`
+	IdleTimeout              string `yaml:"idle_timeout"`
+	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
+	EnforceTotalBandwidth    bool   `yaml:"enforce_total_bandwidth"`
+	MaxDownloadRate          string `yaml:"max_download_rate"`
+	MaxUploadRate            string `yaml:"max_upload_rate"`
+}
+
+func (this SessionConfig) Parse() (SessionOptions, error) {
+
+	opts := SessionOptions{
+		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
+		MaxConcurrentConnections: this.MaxConcurrentConnections,
+	}
+
+	if this.Timeout != "" {
+		val, err := time.ParseDuration(this.Timeout)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing timeout: %v", err)
+		} else if val < time.Second {
+			return opts, fmt.Errorf("timeout value too small")
+		}
+		opts.Timeout = val
+	}
+
+	if this.IdleTimeout != "" {
+		val, err := time.ParseDuration(this.IdleTimeout)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing idle_timeout: %v", err)
+		} else if val < time.Second {
+			return opts, fmt.Errorf("idle_timeout value too small")
+		}
+		opts.IdleTimeout = val
+	}
+
+	if this.MaxConcurrentConnections < 0 {
+		return opts, fmt.Errorf("max_concurrent_connections value invalid")
+	}
+
+	if this.MaxDownloadRate != "" {
+		val, err := utils.ParseDataRate(this.MaxDownloadRate)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing max_download_rate: %v", err)
+		}
+		opts.MaxRxRate = val
+	}
+
+	if this.MaxUploadRate != "" {
+		val, err := utils.ParseDataRate(this.MaxUploadRate)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing max_upload_rate: %v", err)
+		}
+		opts.MaxTxRate = val
+	}
+
+	return opts, nil
+}
+
+func (this SessionConfig) Unwrap() SessionOptions {
+
+	opts, _ := this.Parse()
+
+	if opts.Timeout == 0 {
+		opts.Timeout = 15 * time.Minute
+	}
+
+	if opts.IdleTimeout == 0 {
+		opts.IdleTimeout = 5 * time.Minute
+	}
+
+	if opts.MaxConcurrentConnections == 0 {
+		opts.MaxConcurrentConnections = 256
+	}
+
+	if opts.MaxRxRate == 0 {
+		opts.MaxRxRate = 50_000_000
+	}
+
+	if opts.MaxTxRate == 0 {
+		opts.MaxTxRate = 25_000_000
+	}
+
+	return opts
 }

@@ -22,15 +22,15 @@ type socksV5Authenticator interface {
 type socksV5Reply byte
 
 const (
-	socksV5ReplOk                  = socksV5Reply(0x00)
-	socksV5ErrGeneric              = socksV5Reply(0x01)
-	socksV5ErrConnNotAllowed       = socksV5Reply(0x02)
-	socksV5ErrNetUnreachable       = socksV5Reply(0x03)
-	socksV5ErrHostUnreachable      = socksV5Reply(0x04)
-	socksV5ErrConnRefused          = socksV5Reply(0x05)
-	socksV5ErrTtlExpired           = socksV5Reply(0x06)
-	socksV5ErrCmdNotSupported      = socksV5Reply(0x07)
-	socksV5ErrAddrTypeNotSupported = socksV5Reply(0x08)
+	v5_Ok         = socksV5Reply(0x00)
+	v5_ErrGeneric = socksV5Reply(0x01)
+	//	v5_ErrConnNotAllowedByRuleset = socksV5Reply(0x02)
+	v5_ErrNetUnreachable       = socksV5Reply(0x03)
+	v5_ErrHostUnreachable      = socksV5Reply(0x04)
+	v5_ErrConnRefused          = socksV5Reply(0x05)
+	v5_ErrTtlExpired           = socksV5Reply(0x06)
+	v5_ErrCmdNotSupported      = socksV5Reply(0x07)
+	v5_ErrAddrTypeNotSupported = socksV5Reply(0x08)
 )
 
 // socksv5 proxy is dispatched from the root handler;
@@ -61,7 +61,7 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
-		writeReply(socksV5ErrGeneric)
+		writeReply(v5_ErrGeneric)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()))
-		_ = writeAuthMethod(socksV5AuthMethodUnacceptable)
+		_ = writeAuthMethod(v5_AuthMethodUnacceptable)
 		return
 	}
 
@@ -126,18 +126,41 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
-		_ = writeReply(socksV5ErrGeneric)
+		_ = writeReply(v5_ErrGeneric)
+		return
+	}
+
+	//	doing it after reading command to not bamboozle the client or anything
+	if sess.Expired() {
+		//	This particular one is only used so that the enum values doesn't hand unused
+		slog.Debug("SOCKSv5: Session: Expired",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		_ = writeReply(v5_ErrTtlExpired)
+	}
+
+	if !sess.CanAcceptConnection() {
+		slog.Debug("SOCKSv5: Session: Too many connections",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		_ = writeReply(v5_ErrConnRefused)
 		return
 	}
 
 	switch cmd {
 
-	case socksV5CmdConnect:
+	case v5_CmdConnect:
 
 		this.connect(conn, sess)
 
 	default:
-		_ = writeReply(socksV5ErrCmdNotSupported)
+		_ = writeReply(v5_ErrCmdNotSupported)
 	}
 }
 
@@ -162,7 +185,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("err", err.Error()))
-		_ = writeReply(socksV5ErrAddrTypeNotSupported, dstAddr)
+		_ = writeReply(v5_ErrAddrTypeNotSupported, dstAddr)
 		return
 	}
 
@@ -174,7 +197,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("client_id", sess.ID.String()),
 			slog.String("sid", sess.ID.String()),
 			slog.String("host", string(dstAddr)))
-		_ = writeReply(socksV5ErrNetUnreachable, dstAddr)
+		_ = writeReply(v5_ErrNetUnreachable, dstAddr)
 		return
 	}
 
@@ -199,13 +222,13 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 			slog.String("host", string(dstAddr)),
 			slog.String("err", err.Error()))
 
-		_ = writeReply(socksV5ErrHostUnreachable, dstAddr)
+		_ = writeReply(v5_ErrHostUnreachable, dstAddr)
 		return
 	}
 
 	defer dstConn.Close()
 
-	if err := writeReply(socksV5ReplOk, socksV5Addr(dstConn.LocalAddr().String())); err != nil {
+	if err := writeReply(v5_Ok, socksV5Addr(dstConn.LocalAddr().String())); err != nil {
 		slog.Debug("SOCKSv5: Connect: Terminated",
 			slog.String("nas_addr", nasIP.String()),
 			slog.Int("nas_port", nasPort),
@@ -234,8 +257,8 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		RxAcct: &sess.AcctRxBytes,
 		TxAcct: &sess.AcctTxBytes,
 
-		RxMaxRate: sess.ConnectionMaxRx(),
-		TxMaxRate: sess.ConnectionMaxTx(),
+		RxMaxRate: sess.BandwidthRx(),
+		TxMaxRate: sess.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {
@@ -251,9 +274,9 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 }
 
 const (
-	socksV5AddrIPV4   = byte(0x01)
-	socksV5AddrDomain = byte(0x03)
-	socksV5AddrIPv6   = byte(0x04)
+	v5_AddrIPV4   = byte(0x01)
+	v5_AddrDomain = byte(0x03)
+	v5_AddrIPv6   = byte(0x04)
 )
 
 type socksV5Addr string
@@ -275,13 +298,13 @@ func (this socksV5Addr) MarshallBinary() ([]byte, error) {
 
 	switch {
 	case len(hostAddr) == net.IPv4len:
-		buff = append(buff, socksV5AddrIPV4)
+		buff = append(buff, v5_AddrIPV4)
 		buff = append(buff, hostAddr...)
 	case len(hostAddr) == net.IPv6len:
-		buff = append(buff, socksV5AddrIPv6)
+		buff = append(buff, v5_AddrIPv6)
 		buff = append(buff, hostAddr...)
 	default:
-		buff = append(buff, socksV5AddrDomain, byte(len(hostStr)&0xff))
+		buff = append(buff, v5_AddrDomain, byte(len(hostStr)&0xff))
 		buff = append(buff, hostStr...)
 	}
 
@@ -310,15 +333,15 @@ func readSocksV5Addr(reader io.Reader) (socksV5Addr, error) {
 
 	switch addrType {
 
-	case socksV5AddrIPV4:
+	case v5_AddrIPV4:
 		addrLen = net.IPv4len
 		addrIsIP = true
 
-	case socksV5AddrIPv6:
+	case v5_AddrIPv6:
 		addrLen = net.IPv6len
 		addrIsIP = true
 
-	case socksV5AddrDomain:
+	case v5_AddrDomain:
 		addrLen, err = utils.ReadByte(reader)
 		if err != nil {
 			return "", err
@@ -352,37 +375,37 @@ func readSocksV5Addr(reader io.Reader) (socksV5Addr, error) {
 
 type socksV5AuthMethod byte
 
+// Reference: https://www.iana.org/assignments/socks-methods/socks-methods.xhtml
+const (
+	v5_AuthMethodNone               = socksV5AuthMethod(0x00)
+	v5_AuthMethodGSSAPI             = socksV5AuthMethod(0x01)
+	v5_AuthMethodPassword           = socksV5AuthMethod(0x02)
+	v5_AuthMethodChallengeHandshake = socksV5AuthMethod(0x03)
+	v5_AuthMethodChallengeResponse  = socksV5AuthMethod(0x05)
+	v5_AuthMethodSSL                = socksV5AuthMethod(0x06)
+	v5_AuthMethodNDSAuth            = socksV5AuthMethod(0x07)
+	v5_AuthMethodMultiAuthFramework = socksV5AuthMethod(0x08)
+	v5_AuthMethodJSON               = socksV5AuthMethod(0x09)
+	v5_AuthMethodUnacceptable       = socksV5AuthMethod(0xff)
+)
+
 func (this socksV5AuthMethod) Valid() bool {
 	switch this {
-	case socksV5AuthMethodNone,
-		socksV5AuthMethodGSSAPI,
-		socksV5AuthMethodPassword,
-		socksV5AuthMethodChallengeHandshake,
-		socksV5AuthMethodChallengeResponse,
-		socksV5AuthMethodSSL,
-		socksV5AuthMethodNDSAuth,
-		socksV5AuthMethodMultiAuthFramework,
-		socksV5AuthMethodJSON,
-		socksV5AuthMethodUnacceptable:
+	case v5_AuthMethodNone,
+		v5_AuthMethodGSSAPI,
+		v5_AuthMethodPassword,
+		v5_AuthMethodChallengeHandshake,
+		v5_AuthMethodChallengeResponse,
+		v5_AuthMethodSSL,
+		v5_AuthMethodNDSAuth,
+		v5_AuthMethodMultiAuthFramework,
+		v5_AuthMethodJSON,
+		v5_AuthMethodUnacceptable:
 		return true
 	default:
 		return false
 	}
 }
-
-// Reference: https://www.iana.org/assignments/socks-methods/socks-methods.xhtml
-const (
-	socksV5AuthMethodNone               = socksV5AuthMethod(0x00)
-	socksV5AuthMethodGSSAPI             = socksV5AuthMethod(0x01)
-	socksV5AuthMethodPassword           = socksV5AuthMethod(0x02)
-	socksV5AuthMethodChallengeHandshake = socksV5AuthMethod(0x03)
-	socksV5AuthMethodChallengeResponse  = socksV5AuthMethod(0x05)
-	socksV5AuthMethodSSL                = socksV5AuthMethod(0x06)
-	socksV5AuthMethodNDSAuth            = socksV5AuthMethod(0x07)
-	socksV5AuthMethodMultiAuthFramework = socksV5AuthMethod(0x08)
-	socksV5AuthMethodJSON               = socksV5AuthMethod(0x09)
-	socksV5AuthMethodUnacceptable       = socksV5AuthMethod(0xff)
-)
 
 func readsocksV5AuthMethods(reader io.Reader) ([]socksV5AuthMethod, error) {
 
@@ -413,9 +436,9 @@ func readsocksV5AuthMethods(reader io.Reader) ([]socksV5AuthMethod, error) {
 type socksV5PasswordAuthStatus byte
 
 const (
-	socksV5PasswordAuthVersion = byte(0x01)
-	socksV5PasswordAuthOk      = socksV5PasswordAuthStatus(0x00)
-	socksV5PasswordAuthFail    = socksV5PasswordAuthStatus(0x01)
+	v5_PasswordAuthVersion = byte(0x01)
+	v5_PasswordAuthOk      = socksV5PasswordAuthStatus(0x00)
+	v5_PasswordAuthFail    = socksV5PasswordAuthStatus(0x01)
 )
 
 type socksV5PasswordAuthenticator struct {
@@ -438,7 +461,7 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 		ver := buff[0]
 		ulen := buff[1]
 
-		if ver != socksV5PasswordAuthVersion {
+		if ver != v5_PasswordAuthVersion {
 			return nil, fmt.Errorf("invalid auth version")
 		} else if ulen == 0 {
 			return nil, fmt.Errorf("username length is zero")
@@ -465,13 +488,13 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 	}
 
 	var writeStatus = func(status socksV5PasswordAuthStatus) error {
-		_, err := conn.Write([]byte{socksV5PasswordAuthVersion, byte(status)})
+		_, err := conn.Write([]byte{v5_PasswordAuthVersion, byte(status)})
 		return err
 	}
 
 	creds, err := readCredentials(conn)
 	if err != nil {
-		_ = writeStatus(socksV5PasswordAuthFail)
+		_ = writeStatus(v5_PasswordAuthFail)
 		return nil, fmt.Errorf("unable to parse credentials")
 	}
 
@@ -487,13 +510,13 @@ func (this *socksV5PasswordAuthenticator) Authorize(ctx context.Context, conn ne
 
 	switch err {
 	case nil:
-		err = writeStatus(socksV5PasswordAuthOk)
+		err = writeStatus(v5_PasswordAuthOk)
 		return sess, err
 	case auth.ErrUnauthorized:
 		err = CredentialsError{Username: creds.Username}
 	}
 
-	if err := writeStatus(socksV5PasswordAuthFail); err != nil {
+	if err := writeStatus(v5_PasswordAuthFail); err != nil {
 		return nil, err
 	}
 
@@ -504,18 +527,18 @@ type socksV5Cmd byte
 
 func (this socksV5Cmd) Valid() bool {
 	switch this {
-	case socksV5CmdAssociate,
-		socksV5CmdBind,
-		socksV5CmdConnect:
+	case v5_CmdAssociate,
+		v5_CmdBind,
+		v5_CmdConnect:
 		return true
 	}
 	return false
 }
 
 const (
-	socksV5CmdConnect   = socksV5Cmd(0x01)
-	socksV5CmdBind      = socksV5Cmd(0x02)
-	socksV5CmdAssociate = socksV5Cmd(0x03)
+	v5_CmdConnect   = socksV5Cmd(0x01)
+	v5_CmdBind      = socksV5Cmd(0x02)
+	v5_CmdAssociate = socksV5Cmd(0x03)
 )
 
 func readSocksV5Cmd(reader io.Reader) (socksV5Cmd, error) {

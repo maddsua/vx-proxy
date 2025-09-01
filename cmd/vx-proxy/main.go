@@ -98,7 +98,7 @@ func main() {
 		setCustomDns(cfg.Dns.Server)
 	}
 
-	authc, err := auth.NewRadiusController(cfg.Auth.Radius)
+	authc, err := auth.NewRadiusController(cfg.Auth.Radius, cfg.Auth.Session.Unwrap())
 	if err != nil {
 		slog.Error("Failed to start radius controller",
 			slog.String("err", err.Error()))
@@ -117,9 +117,9 @@ func main() {
 	if cfg.Services.Http != nil {
 
 		svc := httproxy.HttpServer{
-			Config: *cfg.Services.Http,
-			Auth:   authc,
-			Dns:    customDNS,
+			ServerConfig: *cfg.Services.Http,
+			Auth:         authc,
+			Dns:          customDNS,
 		}
 
 		go func() {
@@ -137,9 +137,9 @@ func main() {
 	if cfg.Services.Socks != nil {
 
 		svc := socks.SocksServer{
-			Config: *cfg.Services.Socks,
-			Auth:   authc,
-			Dns:    customDNS,
+			ServerConfig: *cfg.Services.Socks,
+			Auth:         authc,
+			Dns:          customDNS,
 		}
 
 		go func() {

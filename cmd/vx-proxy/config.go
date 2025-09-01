@@ -50,7 +50,8 @@ type Config struct {
 }
 
 type AuthConfig struct {
-	Radius auth.RadiusConfig `yaml:"radius"`
+	Radius  auth.RadiusConfig  `yaml:"radius"`
+	Session auth.SessionConfig `yaml:"session"`
 }
 
 func (this *AuthConfig) Validate(portSet PortSet) error {
@@ -61,6 +62,10 @@ func (this *AuthConfig) Validate(portSet PortSet) error {
 
 	if err := portSet.Register(this.Radius, "radius"); err != nil {
 		return err
+	}
+
+	if _, err := this.Session.Parse(); err != nil {
+		return fmt.Errorf("session: %s", err.Error())
 	}
 
 	return nil
@@ -82,9 +87,9 @@ func (this *Config) Validate() error {
 }
 
 type ServicesConfig struct {
-	Http      *http.Config      `yaml:"http"`
-	Socks     *socks.Config     `yaml:"socks"`
-	Telemetry *telemetry.Config `yaml:"telemetry"`
+	Http      *http.ServerConfig  `yaml:"http"`
+	Socks     *socks.ServerConfig `yaml:"socks"`
+	Telemetry *telemetry.Config   `yaml:"telemetry"`
 }
 
 func (this *ServicesConfig) Validate(portSet PortSet) error {

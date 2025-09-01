@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"sync/atomic"
 	"time"
@@ -11,25 +12,42 @@ import (
 type BodyReader struct {
 	Reader  io.Reader
 	Acct    *atomic.Int64
-	MaxRate utils.SpeedLimiter
+	MaxRate utils.Bandwidther
 }
 
 func (this *BodyReader) Read(buff []byte) (int, error) {
 
-	size, err := this.Reader.Read(buff)
-
-	if this.Acct != nil {
-		this.Acct.Add(int64(size))
+	var acct = func(delta int) {
+		if this.Acct != nil {
+			this.Acct.Add(int64(delta))
+		}
 	}
 
 	if this.MaxRate != nil {
-		if limit, has := this.MaxRate.Limit(); has {
-			//	this isn't optimal and will ondershoot the speed
-			//	but it's the best shot with the current http implementation
-			expected := time.Duration((int64(time.Second) * int64(size)) / int64(limit))
-			time.Sleep(expected)
+
+		if bandwidth, has := this.MaxRate.Bandwidth(); has {
+
+			copyStarted := time.Now()
+
+			chunkSize := min(utils.ChunkSizeFor(bandwidth), len(buff))
+			chunk := make([]byte, chunkSize)
+
+			size, err := this.Reader.Read(chunk)
+			if err == nil {
+				//	todo: this crap needs to be kicked the fuck out
+				utils.ChunkSlowdown(context.Background(), chunkSize, bandwidth, copyStarted)
+			}
+
+			copyN(buff, chunk, size)
+
+			acct(int(size))
+
+			return int(size), err
 		}
 	}
+
+	size, err := this.Reader.Read(buff)
+	acct(size)
 
 	return size, err
 }
@@ -39,4 +57,10 @@ func (this *BodyReader) Close() error {
 		return closer.Close()
 	}
 	return nil
+}
+
+func copyN(dst []byte, src []byte, n int) {
+	for idx := range min(len(dst), len(src), n) {
+		dst[idx] = src[idx]
+	}
 }

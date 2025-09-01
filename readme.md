@@ -65,3 +65,5 @@ services:
     listen_addr: localhost:1111
 
 ```
+
+todo: update config reference
