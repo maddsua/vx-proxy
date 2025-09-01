@@ -125,45 +125,55 @@ func (this *Session) BandwidthRx() bandwidthCtl {
 
 	if this.EnforceTotalBandwidth {
 		return bandwidthCtl{
-			bandwidth: this.MaxRxRate,
+			bandwidth: &this.MaxRxRate,
 			peers:     &this.cc,
 		}
 	}
 
-	return bandwidthCtl{bandwidth: this.MaxRxRate}
+	return bandwidthCtl{bandwidth: &this.MaxRxRate}
 }
 
 func (this *Session) BandwidthTx() bandwidthCtl {
 
 	if this.EnforceTotalBandwidth {
 		return bandwidthCtl{
-			bandwidth: this.MaxTxRate,
+			bandwidth: &this.MaxTxRate,
 			peers:     &this.cc,
 		}
 	}
 
-	return bandwidthCtl{bandwidth: this.MaxTxRate}
+	return bandwidthCtl{bandwidth: &this.MaxTxRate}
 }
 
+// bandwidthCtl keeps pointers to both current one-line (RX or TX) bandwidth limit
+// as well as a pointer to the total number of concurrent connections
 type bandwidthCtl struct {
-	bandwidth int
+	bandwidth *int
 	peers     *atomic.Int64
 }
 
 func (this bandwidthCtl) Bandwidth() (int, bool) {
 
-	if this.bandwidth <= 0 {
+	if this.bandwidth == nil {
+		return 0, false
+	}
+
+	//	This is here to avoid having it's value changing under the pointer,
+	//	not to prevent pointer dereference bullshit. The pointer itself is never supposed to change
+	bandwidth := *this.bandwidth
+
+	if bandwidth <= 0 {
 		return 0, false
 	} else if this.peers == nil {
-		return this.bandwidth, true
+		return bandwidth, true
 	}
 
 	peers := this.peers.Load()
 	if peers <= 1 {
-		return this.bandwidth, true
+		return bandwidth, true
 	}
 
-	return this.bandwidth / int(peers), true
+	return bandwidth / int(peers), true
 }
 
 type CredentialsMiss struct {
