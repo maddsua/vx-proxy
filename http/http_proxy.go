@@ -94,7 +94,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 			slog.String("client_ip", clientIP.String()),
 			slog.String("sid", sess.ID.String()),
 			slog.String("client_id", sess.ClientID))
-		wrt.WriteHeader(http.StatusForbidden)
+		wrt.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
 
