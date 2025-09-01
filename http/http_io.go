@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"sync/atomic"
 	"time"
@@ -33,7 +34,8 @@ func (this *BodyReader) Read(buff []byte) (int, error) {
 
 			size, err := this.Reader.Read(chunk)
 			if err == nil {
-				utils.ChunkSlowdown(chunkSize, bandwidth, copyStarted)
+				//	todo: this crap needs to be kicked the fuck out
+				utils.ChunkSlowdown(context.Background(), chunkSize, bandwidth, copyStarted)
 			}
 
 			copyN(buff, chunk, size)

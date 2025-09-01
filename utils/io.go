@@ -119,7 +119,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 		}
 
 		if bandwidth > 0 {
-			ChunkSlowdown(chunkSize, bandwidth, copyStarted)
+			ChunkSlowdown(ctx, chunkSize, bandwidth, copyStarted)
 		}
 	}
 
@@ -127,7 +127,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 }
 
 // Creates a fake io delay to achieve a target data transfer rate
-func ChunkSlowdown(size int, bandwidth int, started time.Time) {
+func ChunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
 
 	elapsed := time.Since(started)
 
@@ -135,8 +135,13 @@ func ChunkSlowdown(size int, bandwidth int, started time.Time) {
 	volume := ((size * 8) * 95) / 100
 	expected := time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
 
-	if elapsed < expected && expected < time.Second {
-		time.Sleep(expected - elapsed)
+	if elapsed >= expected {
+		return
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(expected - elapsed):
 	}
 }
 
