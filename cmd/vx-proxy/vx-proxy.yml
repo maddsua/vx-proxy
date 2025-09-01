@@ -5,7 +5,7 @@ auth:
     listen_dac: localhost:3799
     secret: secret
   session:
-    enforce_total_bandwidth: true
+    enforce_total_bandwidth: false
 services:
   http:
     port_range: 8810-8819
