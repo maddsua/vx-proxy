@@ -4,6 +4,8 @@ auth:
     acct_addr: localhost:1813
     listen_dac: localhost:3799
     secret: secret
+  session:
+    enforce_total_bandwidth: true
 services:
   http:
     port_range: 8810-8819
