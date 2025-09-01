@@ -486,7 +486,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		sess.MaxRxRate = int(val)
 	}
 
-	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req); err == nil {
+	if val, err := rfc4679.MaximumDataRateUpstream_Lookup(req); err == nil {
 		sess.MaxTxRate = int(val)
 	}
 
@@ -675,7 +675,7 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		sess.MaxRxRate = int(val)
 	}
 
-	if val, err := rfc4679.ActualDataRateUpstream_Lookup(req.Packet); err == nil {
+	if val, err := rfc4679.MaximumDataRateUpstream_Lookup(req.Packet); err == nil {
 		sess.MaxTxRate = int(val)
 	}
 
