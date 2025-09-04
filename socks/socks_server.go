@@ -22,7 +22,7 @@ func (this *ServerConfig) Validate() error {
 		return fmt.Errorf("port_range is missing")
 	}
 
-	if _, err := utils.ParseRange(this.PortRange); err != nil {
+	if _, err := utils.ParsePortRange(this.PortRange); err != nil {
 		return fmt.Errorf("port_range format invalid")
 	}
 
@@ -33,8 +33,8 @@ func (this ServerConfig) BindsPorts() []string {
 
 	var ports []string
 
-	if portRange, err := utils.ParseRange(this.PortRange); err == nil {
-		for port := portRange.Begin; port <= portRange.End; port++ {
+	if portRange, err := utils.ParsePortRange(this.PortRange); err == nil {
+		for port := portRange.First; port <= portRange.Last; port++ {
 			ports = append(ports, fmt.Sprintf("%d/tcp", port))
 		}
 	}
@@ -62,14 +62,14 @@ func (this *SocksServer) ListenAndServe() error {
 		Dns:  this.Dns,
 	}
 
-	portRange, err := utils.ParseRange(this.ServerConfig.PortRange)
+	portRange, err := utils.ParsePortRange(this.ServerConfig.PortRange)
 	if err != nil {
 		return fmt.Errorf("invalid port range: '%v'", this.ServerConfig.PortRange)
 	}
 
 	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
 
-	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
+	for port := portRange.First; port <= portRange.Last && portRange.First != portRange.Last; port++ {
 
 		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {

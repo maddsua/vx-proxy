@@ -100,7 +100,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 			}
 		}
 
-		chunkSize := ChunkSizeFor(bandwidth)
+		chunkSize := chunkSizeFor(bandwidth)
 		copyStarted = time.Now()
 
 		written, err := io.CopyN(dst, src, int64(chunkSize))
@@ -119,7 +119,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 		}
 
 		if bandwidth > 0 {
-			ChunkSlowdown(ctx, chunkSize, bandwidth, copyStarted)
+			chunkSlowdown(ctx, chunkSize, bandwidth, copyStarted)
 		}
 	}
 
@@ -127,14 +127,10 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 }
 
 // Creates a fake io delay to achieve a target data transfer rate
-func ChunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
+func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
 
 	elapsed := time.Since(started)
-
-	//	using a hacky ass formula: to_bits(size)*0.95
-	volume := ((size * 8) * 95) / 100
-	expected := time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
-
+	expected := ExpectIoDoneIn(bandwidth, size)
 	if elapsed >= expected {
 		return
 	}
@@ -145,9 +141,17 @@ func ChunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Ti
 	}
 }
 
+// Returns the amount of time it's expected for an IO operation to take. Bandwidth in bps, size in bytes
+func ExpectIoDoneIn(bandwidth int, size int) time.Duration {
+
+	//	using a hacky ass formula: to_bits(size)*0.95
+	volume := ((size * 8) * 95) / 100
+	return time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
+}
+
 // This wacky lookup table is here to try to fix bandwidth deviations
 // caused by inaccurate system timers and various unaccounted I/O delays
-func ChunkSizeFor(bandwidth int) int {
+func chunkSizeFor(bandwidth int) int {
 	switch {
 	case bandwidth > 1_000_000_000:
 		return 10 * 1024 * 1024
@@ -168,4 +172,19 @@ func ChunkSizeFor(bandwidth int) int {
 	default:
 		return 16 * 1024
 	}
+}
+
+type FlushWriter struct {
+	io.Writer
+}
+
+func (this FlushWriter) Write(p []byte) (n int, err error) {
+
+	if n, err = this.Writer.Write(p); n > 0 {
+		if flusher, ok := this.Writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+
+	return
 }

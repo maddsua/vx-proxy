@@ -3,64 +3,156 @@ package http
 import (
 	"context"
 	"io"
+	"net"
+	"net/http"
 	"sync/atomic"
 	"time"
 
+	"github.com/maddsua/vx-proxy/auth"
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-type BodyReader struct {
-	Reader  io.Reader
-	Acct    *atomic.Int64
-	MaxRate utils.Bandwidther
-}
+func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 
-func (this *BodyReader) Read(buff []byte) (int, error) {
+	if sess.FramedHttpClient == nil {
 
-	var acct = func(delta int) {
-		if this.Acct != nil {
-			this.Acct.Add(int64(delta))
+		if sess.FramedIP == nil {
+			return http.DefaultClient
 		}
-	}
 
-	if this.MaxRate != nil {
+		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
 
-		if bandwidth, has := this.MaxRate.Bandwidth(); has {
+		var dialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 
-			copyStarted := time.Now()
-
-			chunkSize := min(utils.ChunkSizeFor(bandwidth), len(buff))
-			chunk := make([]byte, chunkSize)
-
-			size, err := this.Reader.Read(chunk)
-			if err == nil {
-				//	todo: this crap needs to be kicked the fuck out
-				utils.ChunkSlowdown(context.Background(), chunkSize, bandwidth, copyStarted)
+			baseConn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
 			}
 
-			copyN(buff, chunk, size)
+			return &framedConn{
+				BaseConn:    baseConn,
+				RxAcct:      &sess.AcctRxBytes,
+				TxAcct:      &sess.AcctTxBytes,
+				RxBandwidth: sess.BandwidthRx(),
+				TxBandwidth: sess.BandwidthTx(),
+			}, nil
+		}
 
-			acct(int(size))
-
-			return int(size), err
+		sess.FramedHttpClient = &http.Client{
+			Transport: &http.Transport{
+				DialContext:           dialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       30 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
 		}
 	}
 
-	size, err := this.Reader.Read(buff)
-	acct(size)
-
-	return size, err
+	return sess.FramedHttpClient
 }
 
-func (this *BodyReader) Close() error {
-	if closer, ok := this.Reader.(io.Closer); ok {
-		return closer.Close()
+type framedConn struct {
+	BaseConn net.Conn
+
+	RxDeadline time.Time
+	TxDeadline time.Time
+
+	RxAcct *atomic.Int64
+	TxAcct *atomic.Int64
+
+	RxBandwidth utils.Bandwidther
+	TxBandwidth utils.Bandwidther
+}
+
+func (this *framedConn) Read(b []byte) (n int, err error) {
+
+	started := time.Now()
+
+	n, err = this.BaseConn.Read(b)
+
+	if n > 0 && this.RxAcct != nil {
+		this.RxAcct.Add(int64(n))
 	}
-	return nil
+
+	if bandwidth, has := this.RxBandwidth.Bandwidth(); has {
+		if err != nil || err == io.EOF {
+			framedConnSlowdown(started, this.RxDeadline, bandwidth, n)
+		}
+	}
+
+	return
 }
 
-func copyN(dst []byte, src []byte, n int) {
-	for idx := range min(len(dst), len(src), n) {
-		dst[idx] = src[idx]
+func (this *framedConn) Write(b []byte) (n int, err error) {
+
+	started := time.Now()
+
+	n, err = this.BaseConn.Write(b)
+
+	if n > 0 && this.TxAcct != nil {
+		this.TxAcct.Add(int64(n))
+	}
+
+	if bandwidth, has := this.TxBandwidth.Bandwidth(); has {
+		if err != nil || err == io.EOF {
+			framedConnSlowdown(started, this.TxDeadline, bandwidth, n)
+		}
+	}
+
+	return
+}
+
+func (this *framedConn) Close() error {
+	return this.BaseConn.Close()
+}
+
+func (this *framedConn) LocalAddr() net.Addr {
+	return this.BaseConn.LocalAddr()
+}
+
+func (this *framedConn) RemoteAddr() net.Addr {
+	return this.BaseConn.RemoteAddr()
+}
+
+func (this *framedConn) SetDeadline(t time.Time) error {
+
+	this.RxDeadline = t
+	this.TxDeadline = t
+
+	return this.BaseConn.SetDeadline(t)
+}
+
+func (this *framedConn) SetReadDeadline(t time.Time) error {
+
+	this.RxDeadline = t
+
+	return this.BaseConn.SetReadDeadline(t)
+}
+
+func (this *framedConn) SetWriteDeadline(t time.Time) error {
+
+	this.TxDeadline = t
+
+	return this.BaseConn.SetWriteDeadline(t)
+}
+
+func framedConnSlowdown(started time.Time, deadline time.Time, bandwidth int, size int) {
+
+	elapsed := time.Since(started)
+	expected := utils.ExpectIoDoneIn(bandwidth, size)
+	if elapsed >= expected {
+		return
+	}
+
+	deadlineExceeded := make(<-chan time.Time)
+	if until := time.Until(deadline); until > 0 {
+		deadlineExceeded = time.After(until)
+	}
+
+	select {
+	case <-deadlineExceeded:
+	case <-time.After(expected - elapsed):
 	}
 }
