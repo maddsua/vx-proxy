@@ -107,8 +107,12 @@ func NewRadiusController(protoCfg RadiusConfig, sessOpts SessionOptions) (*radiu
 		Addr:         protoCfg.ListenDAC,
 	}
 
+	if host, _, _ := net.SplitHostPort(this.dacServer.Addr); strings.ToLower(host) == "localhost" {
+		slog.Warn("RADIUS: 'localhost' is set as a DAC address. This may or may not bind only to IPv4 UDP loopback address. Please consider using a specific address or an <unspecified>")
+	}
+
 	var err error
-	if this.dacListener, err = net.ListenPacket("udp", utils.StripLocalhost(this.dacServer.Addr)); err != nil {
+	if this.dacListener, err = net.ListenPacket("udp", this.dacServer.Addr); err != nil {
 		return nil, err
 	}
 
