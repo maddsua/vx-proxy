@@ -93,8 +93,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 
 	var copyLimit = func(bandwidth int) error {
 
-		chunkSize := FramedThroughput(bandwidth)
-		chunk := make([]byte, chunkSize)
+		chunk := make([]byte, FramedThroughput(bandwidth))
 		started := time.Now()
 
 		read, err := src.Read(chunk)
