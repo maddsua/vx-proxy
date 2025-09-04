@@ -126,15 +126,23 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 	return nil
 }
 
-func FramedChunkSize(bandwidth int) int {
-	return ((bandwidth / 8) * 95) / 100
+// Returns the amount of time it's expected for an IO operation to take. Bandwidth in bps, size in bytes
+func FramedIoDuration(bandwidth int, size int) time.Duration {
+	tp := FramedThroughput(bandwidth)
+	return time.Duration(int64(time.Second) * int64(size) / int64(tp))
+}
+
+// Returns bandwidth converted into a chunk size in bytes (per second)
+func FramedThroughput(bandwidth int) int {
+	//	using a hacky ass formula: to_bits(size)*0.95
+	return ((bandwidth / 8) * 100) / 95
 }
 
 // Creates a fake io delay to achieve a target data transfer rate
 func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
 
 	elapsed := time.Since(started)
-	expected := ExpectIoDoneIn(bandwidth, size)
+	expected := FramedIoDuration(bandwidth, size)
 	if elapsed >= expected {
 		return
 	}
@@ -143,13 +151,6 @@ func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Ti
 	case <-ctx.Done():
 	case <-time.After(expected - elapsed):
 	}
-}
-
-// Returns the amount of time it's expected for an IO operation to take. Bandwidth in bps, size in bytes
-func ExpectIoDoneIn(bandwidth int, size int) time.Duration {
-	//	using a hacky ass formula: to_bits(size)*0.95
-	tp := ((bandwidth / 8) * 100) / 95
-	return time.Duration(int64(time.Second) * int64(size) / int64(tp))
 }
 
 // This wacky lookup table is here to try to fix bandwidth deviations

@@ -85,8 +85,7 @@ func (this *framedConn) Read(b []byte) (int, error) {
 	}
 
 	//	the full bandwidth-controlled path
-	maxRead := utils.FramedChunkSize(bandwidth)
-	chunkSize := min(maxRead, len(b))
+	chunkSize := min(utils.FramedThroughput(bandwidth), len(b))
 	chunk := make([]byte, chunkSize)
 	started := time.Now()
 
@@ -103,11 +102,7 @@ func (this *framedConn) Read(b []byte) (int, error) {
 
 	copy(b, chunk[:read])
 
-	if read < chunkSize {
-		time.Sleep(utils.ExpectIoDoneIn(bandwidth, read) - elapsed)
-	} else {
-		time.Sleep(time.Second - elapsed)
-	}
+	time.Sleep(utils.FramedIoDuration(bandwidth, read) - elapsed)
 
 	return read, err
 }
@@ -138,11 +133,10 @@ func (this *framedConn) Write(b []byte) (int, error) {
 	//	the full bandwidth-controlled path
 	var total int
 	n := len(b)
-	writeMax := utils.FramedChunkSize(bandwidth)
 
 	for total < n {
 
-		chunkSize := min(n-total, writeMax)
+		chunkSize := min(utils.FramedThroughput(bandwidth), n-total)
 		chunk := b[total : total+chunkSize]
 
 		started := time.Now()
@@ -161,11 +155,7 @@ func (this *framedConn) Write(b []byte) (int, error) {
 			return total, io.ErrShortWrite
 		}
 
-		if written < writeMax {
-			time.Sleep(utils.ExpectIoDoneIn(bandwidth, written) - elapsed)
-		} else {
-			time.Sleep(time.Second - elapsed)
-		}
+		time.Sleep(utils.FramedIoDuration(bandwidth, written) - elapsed)
 	}
 
 	return total, nil
