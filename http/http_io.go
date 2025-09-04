@@ -97,16 +97,16 @@ func (this *framedConn) Read(b []byte) (int, error) {
 
 	elapsed := time.Since(started)
 
+	if this.RxAcct != nil {
+		this.RxAcct.Add(int64(read))
+	}
+
 	copy(b, chunk[:read])
 
 	if read < chunkSize {
 		time.Sleep(utils.ExpectIoDoneIn(bandwidth, read) - elapsed)
 	} else {
 		time.Sleep(time.Second - elapsed)
-	}
-
-	if this.RxAcct != nil {
-		this.RxAcct.Add(int64(read))
 	}
 
 	return read, err
