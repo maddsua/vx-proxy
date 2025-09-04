@@ -113,8 +113,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 				return io.ErrShortWrite
 			}
 
-			elapsed := time.Since(started)
-			time.Sleep(FramedIoDuration(bandwidth, min(written, read)) - elapsed)
+			FramedIoWait(bandwidth, min(written, read), started)
 		}
 
 		return err
@@ -165,6 +164,12 @@ func FramedIoDuration(bandwidth int, size int) time.Duration {
 func FramedThroughput(bandwidth int) int {
 	//	using a hacky ass formula: to_bits(size)*0.95
 	return ((bandwidth / 8) * 100) / 95
+}
+
+// Creates a fake delay that can be used to limit data transfer rate
+func FramedIoWait(bandwidth int, size int, started time.Time) {
+	elapsed := time.Since(started)
+	time.Sleep(FramedIoDuration(bandwidth, size) - elapsed)
 }
 
 type FlushWriter struct {
