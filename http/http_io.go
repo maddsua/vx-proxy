@@ -3,64 +3,184 @@ package http
 import (
 	"context"
 	"io"
+	"net"
+	"net/http"
 	"sync/atomic"
 	"time"
 
+	"github.com/maddsua/vx-proxy/auth"
 	"github.com/maddsua/vx-proxy/utils"
 )
 
-type BodyReader struct {
-	Reader  io.Reader
-	Acct    *atomic.Int64
-	MaxRate utils.Bandwidther
-}
+func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 
-func (this *BodyReader) Read(buff []byte) (int, error) {
+	if sess.FramedHttpClient == nil {
 
-	var acct = func(delta int) {
-		if this.Acct != nil {
-			this.Acct.Add(int64(delta))
+		if sess.FramedIP == nil {
+			return http.DefaultClient
 		}
-	}
 
-	if this.MaxRate != nil {
+		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
 
-		if bandwidth, has := this.MaxRate.Bandwidth(); has {
+		var dialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 
-			copyStarted := time.Now()
-
-			chunkSize := min(utils.ChunkSizeFor(bandwidth), len(buff))
-			chunk := make([]byte, chunkSize)
-
-			size, err := this.Reader.Read(chunk)
-			if err == nil {
-				//	todo: this crap needs to be kicked the fuck out
-				utils.ChunkSlowdown(context.Background(), chunkSize, bandwidth, copyStarted)
+			baseConn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
 			}
 
-			copyN(buff, chunk, size)
+			return &framedConn{
+				BaseConn:    baseConn,
+				RxAcct:      &sess.AcctRxBytes,
+				TxAcct:      &sess.AcctTxBytes,
+				RxBandwidth: sess.BandwidthRx(),
+				TxBandwidth: sess.BandwidthTx(),
+			}, nil
+		}
 
-			acct(int(size))
-
-			return int(size), err
+		sess.FramedHttpClient = &http.Client{
+			Transport: &http.Transport{
+				DialContext:           dialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       30 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
 		}
 	}
 
-	size, err := this.Reader.Read(buff)
-	acct(size)
-
-	return size, err
+	return sess.FramedHttpClient
 }
 
-func (this *BodyReader) Close() error {
-	if closer, ok := this.Reader.(io.Closer); ok {
-		return closer.Close()
-	}
-	return nil
+type framedConn struct {
+	BaseConn net.Conn
+
+	RxAcct *atomic.Int64
+	TxAcct *atomic.Int64
+
+	RxBandwidth utils.Bandwidther
+	TxBandwidth utils.Bandwidther
 }
 
-func copyN(dst []byte, src []byte, n int) {
-	for idx := range min(len(dst), len(src), n) {
-		dst[idx] = src[idx]
+//	note: should use a buffer here for smoother operations, but this would do for now
+
+func (this *framedConn) Read(b []byte) (int, error) {
+
+	var bandwidth int
+	if this.TxBandwidth != nil {
+		bandwidth, _ = this.TxBandwidth.Bandwidth()
 	}
+
+	//	a short path for when bandwidth limiter is not provided
+	if bandwidth <= 0 {
+
+		n, err := this.BaseConn.Read(b)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(n))
+		}
+
+		return n, err
+	}
+
+	//	the full bandwidth-controlled path
+	chunkSize := min(utils.FramedThroughput(bandwidth), len(b))
+	chunk := make([]byte, chunkSize)
+	started := time.Now()
+
+	read, err := this.BaseConn.Read(chunk)
+	if read == 0 {
+		return read, err
+	}
+
+	elapsed := time.Since(started)
+
+	if this.RxAcct != nil {
+		this.RxAcct.Add(int64(read))
+	}
+
+	copy(b, chunk[:read])
+
+	time.Sleep(utils.FramedIoDuration(bandwidth, read) - elapsed)
+
+	return read, err
+}
+
+func (this *framedConn) Write(b []byte) (int, error) {
+
+	if len(b) == 0 {
+		return 0, nil
+	}
+
+	var bandwidth int
+	if this.RxBandwidth != nil {
+		bandwidth, _ = this.RxBandwidth.Bandwidth()
+	}
+
+	//	a short path for when bandwidth limiter is not provided
+	if bandwidth <= 0 {
+
+		n, err := this.BaseConn.Write(b)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(n))
+		}
+
+		return n, err
+	}
+
+	//	the full bandwidth-controlled path
+	var total int
+	n := len(b)
+
+	for total < n {
+
+		chunkSize := min(utils.FramedThroughput(bandwidth), n-total)
+		chunk := b[total : total+chunkSize]
+
+		started := time.Now()
+		written, err := this.BaseConn.Write(chunk)
+		elapsed := time.Since(started)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(written))
+		}
+
+		total += written
+
+		if err != nil {
+			return total, err
+		} else if written < chunkSize {
+			return total, io.ErrShortWrite
+		}
+
+		time.Sleep(utils.FramedIoDuration(bandwidth, written) - elapsed)
+	}
+
+	return total, nil
+}
+
+func (this *framedConn) Close() error {
+	return this.BaseConn.Close()
+}
+
+func (this *framedConn) LocalAddr() net.Addr {
+	return this.BaseConn.LocalAddr()
+}
+
+func (this *framedConn) RemoteAddr() net.Addr {
+	return this.BaseConn.RemoteAddr()
+}
+
+func (this *framedConn) SetDeadline(t time.Time) error {
+	return this.BaseConn.SetDeadline(t)
+}
+
+func (this *framedConn) SetReadDeadline(t time.Time) error {
+	return this.BaseConn.SetReadDeadline(t)
+}
+
+func (this *framedConn) SetWriteDeadline(t time.Time) error {
+	return this.BaseConn.SetWriteDeadline(t)
 }

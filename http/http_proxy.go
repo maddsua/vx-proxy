@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -331,16 +332,10 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	clientIP, _, _ := utils.GetAddrPort(getContextConn(req.Context()).RemoteAddr())
 	nasIP, nasPort, _ := utils.GetAddrPort(getContextConn(req.Context()).LocalAddr())
 
-	bodyReader := BodyReader{
-		Reader:  req.Body,
-		Acct:    &sess.AcctTxBytes,
-		MaxRate: sess.BandwidthTx(),
-	}
-
 	wrt.Header().Del("Server")
 	wrt.Header().Set("X-Forward-Proxy", "vx/forward")
 
-	forwardReq, err := http.NewRequestWithContext(sess.Context(), req.Method, req.RequestURI, &bodyReader)
+	forwardReq, err := http.NewRequestWithContext(sess.Context(), req.Method, req.RequestURI, req.Body)
 	if err != nil {
 		wrt.WriteHeader(http.StatusBadRequest)
 		return
@@ -392,9 +387,6 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	defer resp.Body.Close()
 
-	sess.AcctRxBytes.Add(int64(getResponseEstimatedSize(resp)))
-	sess.AcctTxBytes.Add(int64(getRequestEstimatedSize(forwardReq)))
-
 	slog.Debug("HTTP forward: Sent",
 		slog.String("nas_addr", nasIP.String()),
 		slog.Int("nas_port", nasPort),
@@ -420,7 +412,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 	go func() {
 
-		if err := utils.PipeIO(req.Context(), wrt, resp.Body, sess.BandwidthRx(), &sess.AcctRxBytes); err != nil {
+		if _, err := io.Copy(utils.FlushWriter{Writer: wrt}, resp.Body); err != nil {
 			slog.Debug("HTTP forward: Copy body failed",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -512,66 +504,4 @@ func getRequestTargetHost(req *http.Request) string {
 	}
 
 	return ""
-}
-
-// Returns approximate close-ish enough size of a request header.
-// It doesn't account for the request body itself
-func getRequestEstimatedSize(req *http.Request) int {
-
-	const headerOverheadMagicNumber = 16
-	const pixieDustMagicNumber = 4
-
-	total := len(req.Method) + len(req.RequestURI) + headerOverheadMagicNumber
-
-	for key, values := range req.Header {
-		for _, val := range values {
-			total += len(key) + len(val) + pixieDustMagicNumber
-		}
-	}
-
-	return total
-}
-
-// Returns approximate close-ish enough size of a request header.
-// It doesn't account for the request body itself
-func getResponseEstimatedSize(resp *http.Response) int {
-
-	const pixieDustMagicNumber = 7
-
-	total := len(resp.Proto) + len(resp.Status) + pixieDustMagicNumber
-
-	for key, values := range resp.Header {
-		for _, val := range values {
-			total += len(key) + len(val) + pixieDustMagicNumber
-		}
-	}
-
-	return total
-}
-
-func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
-
-	if sess.FramedHttpClient == nil {
-
-		if sess.FramedIP == nil {
-			return http.DefaultClient
-		}
-
-		dialer := utils.NewTcpDialer(sess.FramedIP, dns)
-
-		//	todo: insert io accounting and limiting here
-
-		sess.FramedHttpClient = &http.Client{
-			Transport: &http.Transport{
-				DialContext:           dialer.DialContext,
-				ForceAttemptHTTP2:     true,
-				MaxIdleConns:          10,
-				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-			},
-		}
-	}
-
-	return sess.FramedHttpClient
 }

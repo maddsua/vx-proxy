@@ -219,7 +219,9 @@ func (this *radiusController) asyncRefresh() {
 
 			slog.Debug("RADIUS: Session terminated",
 				slog.String("sid", sess.ID.String()),
-				slog.String("reason", "ttl"))
+				slog.String("reason", "ttl"),
+				slog.Int("acct_rx", int(sess.AcctRxBytes.Load())),
+				slog.Int("acct_tx", int(sess.AcctTxBytes.Load())))
 
 			sess.WaitDone()
 			sess.closeDependencies()
@@ -237,7 +239,9 @@ func (this *radiusController) asyncRefresh() {
 
 			slog.Debug("RADIUS: Session terminated",
 				slog.String("sid", sess.ID.String()),
-				slog.String("reason", "idle"))
+				slog.String("reason", "idle"),
+				slog.Int("acct_rx", int(sess.AcctRxBytes.Load())),
+				slog.Int("acct_tx", int(sess.AcctTxBytes.Load())))
 
 			sess.Terminate()
 			sess.WaitDone()
@@ -255,7 +259,9 @@ func (this *radiusController) asyncRefresh() {
 		case time.Since(sess.lastUpdated) > updateInterval:
 
 			slog.Debug("RADIUS: Session accounting update",
-				slog.String("sid", sess.ID.String()))
+				slog.String("sid", sess.ID.String()),
+				slog.Int("rx", int(sess.AcctRxBytes.Load())),
+				slog.Int("tx", int(sess.AcctTxBytes.Load())))
 
 			if err := this.acctUpdateSession(ctx, sess); err != nil {
 				slog.Error("RADIUS: Failed to update session accounting",

@@ -8,13 +8,6 @@ import (
 	"strings"
 )
 
-func GetTcpDialAddr(addr net.IP) net.Addr {
-	if addr != nil && !addr.IsLoopback() {
-		return &net.TCPAddr{IP: addr}
-	}
-	return nil
-}
-
 func GetAddrPort(addr net.Addr) (net.IP, int, bool) {
 
 	if addr, ok := addr.(*net.TCPAddr); ok {
@@ -28,12 +21,12 @@ func GetAddrPort(addr net.Addr) (net.IP, int, bool) {
 	return nil, 0, false
 }
 
-type Range struct {
-	Begin int
-	End   int
+type PortRange struct {
+	First int
+	Last  int
 }
 
-func ParseRange(token string) (*Range, error) {
+func ParsePortRange(token string) (*PortRange, error) {
 
 	if token == "" {
 		return nil, errors.New("empty token")
@@ -47,7 +40,7 @@ func ParseRange(token string) (*Range, error) {
 			return nil, err
 		}
 
-		return &Range{Begin: val, End: val}, nil
+		return &PortRange{First: val, Last: val}, nil
 	}
 
 	begin, err := strconv.Atoi(strings.TrimSpace(before))
@@ -61,10 +54,10 @@ func ParseRange(token string) (*Range, error) {
 	}
 
 	if end <= begin {
-		return nil, errors.New("invalid range")
+		return nil, errors.New("invalid port range")
 	}
 
-	return &Range{Begin: begin, End: end}, nil
+	return &PortRange{First: begin, Last: end}, nil
 }
 
 func DestHostAllowed(host string) error {

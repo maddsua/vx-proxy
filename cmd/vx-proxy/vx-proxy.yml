@@ -9,6 +9,7 @@ auth:
 services:
   http:
     port_range: 8810-8819
+    forward_enable: true
   socks:
     port_range: 8820-8825
   telemetry:

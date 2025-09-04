@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -12,8 +13,8 @@ import (
 )
 
 type ServerConfig struct {
-	PortRange string `yaml:"port_range"`
-	HandlerConfig
+	PortRange     string `yaml:"port_range"`
+	HandlerConfig `yaml:",inline"`
 }
 
 func (this *ServerConfig) Validate() error {
@@ -22,7 +23,7 @@ func (this *ServerConfig) Validate() error {
 		return fmt.Errorf("port_range is missing")
 	}
 
-	if _, err := utils.ParseRange(this.PortRange); err != nil {
+	if _, err := utils.ParsePortRange(this.PortRange); err != nil {
 		return fmt.Errorf("port_range format invalid")
 	}
 
@@ -33,8 +34,8 @@ func (this ServerConfig) BindsPorts() []string {
 
 	var ports []string
 
-	if portRange, err := utils.ParseRange(this.PortRange); err == nil {
-		for port := portRange.Begin; port <= portRange.End; port++ {
+	if portRange, err := utils.ParsePortRange(this.PortRange); err == nil {
+		for port := portRange.First; port <= portRange.Last; port++ {
 			ports = append(ports, fmt.Sprintf("%d/tcp", port))
 		}
 	}
@@ -63,7 +64,7 @@ func (this *HttpServer) ListenAndServe() error {
 		HandlerConfig: this.ServerConfig.HandlerConfig,
 	}
 
-	portRange, err := utils.ParseRange(this.ServerConfig.PortRange)
+	portRange, err := utils.ParsePortRange(this.ServerConfig.PortRange)
 	if err != nil {
 		return fmt.Errorf("invalid port range: '%v'", this.ServerConfig.PortRange)
 	}
@@ -72,7 +73,7 @@ func (this *HttpServer) ListenAndServe() error {
 
 	this.ctx, this.cancelCtx = context.WithCancel(context.Background())
 
-	for port := portRange.Begin; port <= portRange.End && portRange.Begin != portRange.End; port++ {
+	for port := portRange.First; port <= portRange.Last && portRange.First != portRange.Last; port++ {
 
 		portSrv := http.Server{
 			Addr:        fmt.Sprintf(":%d", port),
@@ -92,6 +93,10 @@ func (this *HttpServer) ListenAndServe() error {
 				errorCh <- fmt.Errorf("serve: %s: %v", portSrv.Addr, err)
 			}
 		}()
+	}
+
+	if this.HandlerConfig.ForwardEnable {
+		slog.Info("HTTP proxy: Forward proxy enabled")
 	}
 
 	select {
