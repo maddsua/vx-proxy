@@ -3,8 +3,10 @@ package telemetry
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,8 +80,12 @@ func (this *Telemetry) ListenAndServe() error {
 		})
 	})
 
+	if host, _, _ := net.SplitHostPort(this.ListenAddr); strings.ToLower(host) == "localhost" {
+		slog.Warn("TELEMETRY: 'localhost' is set as a listen address. This makes the service unreachable from the outside. Please consider using a specific address or an <unspecified>")
+	}
+
 	this.srv = &http.Server{
-		Addr:    utils.StripLocalhost(this.ListenAddr),
+		Addr:    this.ListenAddr,
 		Handler: mux,
 	}
 

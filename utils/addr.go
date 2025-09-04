@@ -83,21 +83,6 @@ func DestHostAllowed(host string) error {
 	return nil
 }
 
-// Strips localhost prefix so that a listener that this is getting passed to would bind to all available addresses,
-// and not just whatever go decides is good enough
-func StripLocalhost(addr string) string {
-
-	var isLocalhost = func(host string) bool {
-		return strings.ToLower(host) == "localhost"
-	}
-
-	if host, port, err := net.SplitHostPort(addr); err == nil && isLocalhost(host) {
-		return ":" + port
-	}
-
-	return addr
-}
-
 func NetAddrFormatValid(addr string) bool {
 
 	_, port, err := net.SplitHostPort(addr)
