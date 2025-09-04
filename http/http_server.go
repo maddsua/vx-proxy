@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -12,8 +13,8 @@ import (
 )
 
 type ServerConfig struct {
-	PortRange string `yaml:"port_range"`
-	HandlerConfig
+	PortRange     string `yaml:"port_range"`
+	HandlerConfig `yaml:",inline"`
 }
 
 func (this *ServerConfig) Validate() error {
@@ -92,6 +93,10 @@ func (this *HttpServer) ListenAndServe() error {
 				errorCh <- fmt.Errorf("serve: %s: %v", portSrv.Addr, err)
 			}
 		}()
+	}
+
+	if this.HandlerConfig.ForwardEnable {
+		slog.Info("HTTP proxy: Forward proxy enabled")
 	}
 
 	select {
