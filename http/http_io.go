@@ -56,9 +56,6 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 type framedConn struct {
 	BaseConn net.Conn
 
-	RxDeadline time.Time
-	TxDeadline time.Time
-
 	RxAcct *atomic.Int64
 	TxAcct *atomic.Int64
 
@@ -66,42 +63,116 @@ type framedConn struct {
 	TxBandwidth utils.Bandwidther
 }
 
-func (this *framedConn) Read(b []byte) (n int, err error) {
+//	note: should use a buffer here for smoother operations, but this would do for now
 
+func (this *framedConn) Read(b []byte) (int, error) {
+
+	var bandwidth int
+	if this.TxBandwidth != nil {
+		bandwidth, _ = this.TxBandwidth.Bandwidth()
+	}
+
+	//	a short path for when bandwidth limiter is not provided
+	if bandwidth <= 0 {
+
+		n, err := this.BaseConn.Read(b)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(n))
+		}
+
+		return n, err
+	}
+
+	//	the full bandwidth-controlled path
+	maxRead := utils.FramedChunkSize(bandwidth)
+	chunkSize := min(maxRead, len(b))
+	chunk := make([]byte, chunkSize)
 	started := time.Now()
 
-	n, err = this.BaseConn.Read(b)
-
-	if n > 0 && this.RxAcct != nil {
-		this.RxAcct.Add(int64(n))
+	read, err := this.BaseConn.Read(chunk)
+	if read == 0 {
+		return read, err
 	}
 
-	if bandwidth, has := this.RxBandwidth.Bandwidth(); has {
-		if err != nil || err == io.EOF {
-			framedConnSlowdown(started, this.RxDeadline, bandwidth, n)
+	copy(b, chunk[:read])
+
+	if read < chunkSize {
+		select {
+		case <-time.After(utils.ExpectIoDoneIn(bandwidth, read)):
+		case <-time.After(time.Second - time.Since(started)):
 		}
+	} else {
+		time.Sleep(time.Second - time.Since(started))
 	}
 
-	return
+	if this.RxAcct != nil {
+		this.RxAcct.Add(int64(read))
+	}
+
+	return read, err
 }
 
-func (this *framedConn) Write(b []byte) (n int, err error) {
+func (this *framedConn) Write(b []byte) (int, error) {
 
-	started := time.Now()
-
-	n, err = this.BaseConn.Write(b)
-
-	if n > 0 && this.TxAcct != nil {
-		this.TxAcct.Add(int64(n))
+	if len(b) == 0 {
+		return 0, nil
 	}
 
-	if bandwidth, has := this.TxBandwidth.Bandwidth(); has {
-		if err != nil || err == io.EOF {
-			framedConnSlowdown(started, this.TxDeadline, bandwidth, n)
+	var bandwidth int
+	if this.RxBandwidth != nil {
+		bandwidth, _ = this.RxBandwidth.Bandwidth()
+	}
+
+	//	a short path for when bandwidth limiter is not provided
+	if bandwidth <= 0 {
+
+		n, err := this.BaseConn.Write(b)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(n))
+		}
+
+		return n, err
+	}
+
+	//	the full bandwidth-controlled path
+	var total int
+	n := len(b)
+	writeMax := utils.FramedChunkSize(bandwidth)
+
+	for total < n {
+
+		chunkSize := min(n-total, writeMax)
+		chunk := b[total : total+chunkSize]
+
+		started := time.Now()
+
+		written, err := this.BaseConn.Write(chunk)
+
+		if this.TxAcct != nil {
+			this.TxAcct.Add(int64(written))
+		}
+
+		total += written
+
+		if err != nil {
+			return total, err
+		} else if written < chunkSize {
+			return total, io.ErrShortWrite
+		}
+
+		if written < writeMax {
+			select {
+			case <-time.After(utils.ExpectIoDoneIn(bandwidth, written)):
+			case <-time.After(time.Second - time.Since(started)):
+			}
+		} else {
+			time.Sleep(time.Second - time.Since(started))
 		}
 	}
 
-	return
+	return total, nil
 }
 
 func (this *framedConn) Close() error {
@@ -117,42 +188,13 @@ func (this *framedConn) RemoteAddr() net.Addr {
 }
 
 func (this *framedConn) SetDeadline(t time.Time) error {
-
-	this.RxDeadline = t
-	this.TxDeadline = t
-
 	return this.BaseConn.SetDeadline(t)
 }
 
 func (this *framedConn) SetReadDeadline(t time.Time) error {
-
-	this.RxDeadline = t
-
 	return this.BaseConn.SetReadDeadline(t)
 }
 
 func (this *framedConn) SetWriteDeadline(t time.Time) error {
-
-	this.TxDeadline = t
-
 	return this.BaseConn.SetWriteDeadline(t)
-}
-
-func framedConnSlowdown(started time.Time, deadline time.Time, bandwidth int, size int) {
-
-	elapsed := time.Since(started)
-	expected := utils.ExpectIoDoneIn(bandwidth, size)
-	if elapsed >= expected {
-		return
-	}
-
-	deadlineExceeded := make(<-chan time.Time)
-	if until := time.Until(deadline); until > 0 {
-		deadlineExceeded = time.After(until)
-	}
-
-	select {
-	case <-deadlineExceeded:
-	case <-time.After(expected - elapsed):
-	}
 }

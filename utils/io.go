@@ -126,6 +126,10 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 	return nil
 }
 
+func FramedChunkSize(bandwidth int) int {
+	return ((bandwidth / 8) * 95) / 100
+}
+
 // Creates a fake io delay to achieve a target data transfer rate
 func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
 
@@ -143,10 +147,9 @@ func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Ti
 
 // Returns the amount of time it's expected for an IO operation to take. Bandwidth in bps, size in bytes
 func ExpectIoDoneIn(bandwidth int, size int) time.Duration {
-
 	//	using a hacky ass formula: to_bits(size)*0.95
-	volume := ((size * 8) * 95) / 100
-	return time.Duration(int64(time.Second*time.Duration(volume)) / int64(bandwidth))
+	tp := ((bandwidth / 8) * 100) / 95
+	return time.Duration(int64(time.Second) * int64(size) / int64(tp))
 }
 
 // This wacky lookup table is here to try to fix bandwidth deviations
