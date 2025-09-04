@@ -89,37 +89,64 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
 func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct *atomic.Int64) error {
 
-	var copyStarted time.Time
+	const defaultChunkSize = 32 * 1024
+
+	var copyLimit = func(bandwidth int) error {
+
+		chunk := make([]byte, FramedThroughput(bandwidth))
+		started := time.Now()
+
+		read, err := src.Read(chunk)
+
+		if read > 0 {
+
+			written, err := dst.Write(chunk[:read])
+
+			if acct != nil {
+				acct.Add(int64(written))
+			}
+
+			if err != nil {
+				return err
+			} else if written < read {
+				return io.ErrShortWrite
+			}
+
+			FramedIoWait(bandwidth, min(written, read), started)
+		}
+
+		return err
+	}
+
+	var copyDirect = func() error {
+
+		written, err := io.CopyN(dst, src, defaultChunkSize)
+
+		if acct != nil {
+			acct.Add(written)
+		}
+
+		return err
+	}
 
 	for ctx.Err() == nil {
 
 		var bandwidth int
 		if limiter != nil {
-			if val, has := limiter.Bandwidth(); has {
-				bandwidth = val
-			}
+			bandwidth, _ = limiter.Bandwidth()
 		}
 
-		chunkSize := chunkSizeFor(bandwidth)
-		copyStarted = time.Now()
-
-		written, err := io.CopyN(dst, src, int64(chunkSize))
-		if written > 0 && acct != nil {
-			acct.Add(written)
-		}
-
-		if flusher, ok := dst.(http.Flusher); ok && (err == nil || err == io.EOF) {
-			flusher.Flush()
+		var err error
+		if bandwidth > 0 {
+			err = copyLimit(bandwidth)
+		} else {
+			err = copyDirect()
 		}
 
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return err
-		}
-
-		if bandwidth > 0 {
-			chunkSlowdown(ctx, chunkSize, bandwidth, copyStarted)
 		}
 	}
 
@@ -138,44 +165,10 @@ func FramedThroughput(bandwidth int) int {
 	return ((bandwidth / 8) * 100) / 95
 }
 
-// Creates a fake io delay to achieve a target data transfer rate
-func chunkSlowdown(ctx context.Context, size int, bandwidth int, started time.Time) {
-
+// Creates a fake delay that can be used to limit data transfer rate
+func FramedIoWait(bandwidth int, size int, started time.Time) {
 	elapsed := time.Since(started)
-	expected := FramedIoDuration(bandwidth, size)
-	if elapsed >= expected {
-		return
-	}
-
-	select {
-	case <-ctx.Done():
-	case <-time.After(expected - elapsed):
-	}
-}
-
-// This wacky lookup table is here to try to fix bandwidth deviations
-// caused by inaccurate system timers and various unaccounted I/O delays
-func chunkSizeFor(bandwidth int) int {
-	switch {
-	case bandwidth > 1_000_000_000:
-		return 10 * 1024 * 1024
-	case bandwidth > 300_000_000:
-		return 4 * 1024 * 1024
-	case bandwidth > 150_000_000:
-		return 2 * 1024 * 1024
-	case bandwidth > 100_000_000:
-		return 1024 * 1024
-	case bandwidth > 50_000_000:
-		return 256 * 1024
-	case bandwidth > 25_000_000:
-		return 128 * 1024
-	case bandwidth > 10_000_000:
-		return 64 * 1024
-	case bandwidth > 1_000_000:
-		return 32 * 1024
-	default:
-		return 16 * 1024
-	}
+	time.Sleep(FramedIoDuration(bandwidth, size) - elapsed)
 }
 
 type FlushWriter struct {

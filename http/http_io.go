@@ -94,15 +94,13 @@ func (this *framedConn) Read(b []byte) (int, error) {
 		return read, err
 	}
 
-	elapsed := time.Since(started)
-
 	if this.RxAcct != nil {
 		this.RxAcct.Add(int64(read))
 	}
 
 	copy(b, chunk[:read])
 
-	time.Sleep(utils.FramedIoDuration(bandwidth, read) - elapsed)
+	utils.FramedIoWait(bandwidth, read, started)
 
 	return read, err
 }
@@ -141,7 +139,6 @@ func (this *framedConn) Write(b []byte) (int, error) {
 
 		started := time.Now()
 		written, err := this.BaseConn.Write(chunk)
-		elapsed := time.Since(started)
 
 		if this.TxAcct != nil {
 			this.TxAcct.Add(int64(written))
@@ -155,7 +152,7 @@ func (this *framedConn) Write(b []byte) (int, error) {
 			return total, io.ErrShortWrite
 		}
 
-		time.Sleep(utils.FramedIoDuration(bandwidth, written) - elapsed)
+		utils.FramedIoWait(bandwidth, written, started)
 	}
 
 	return total, nil
