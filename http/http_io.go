@@ -95,15 +95,14 @@ func (this *framedConn) Read(b []byte) (int, error) {
 		return read, err
 	}
 
+	elapsed := time.Since(started)
+
 	copy(b, chunk[:read])
 
 	if read < chunkSize {
-		select {
-		case <-time.After(utils.ExpectIoDoneIn(bandwidth, read)):
-		case <-time.After(time.Second - time.Since(started)):
-		}
+		time.Sleep(utils.ExpectIoDoneIn(bandwidth, read) - elapsed)
 	} else {
-		time.Sleep(time.Second - time.Since(started))
+		time.Sleep(time.Second - elapsed)
 	}
 
 	if this.RxAcct != nil {
@@ -147,8 +146,8 @@ func (this *framedConn) Write(b []byte) (int, error) {
 		chunk := b[total : total+chunkSize]
 
 		started := time.Now()
-
 		written, err := this.BaseConn.Write(chunk)
+		elapsed := time.Since(started)
 
 		if this.TxAcct != nil {
 			this.TxAcct.Add(int64(written))
@@ -163,12 +162,9 @@ func (this *framedConn) Write(b []byte) (int, error) {
 		}
 
 		if written < writeMax {
-			select {
-			case <-time.After(utils.ExpectIoDoneIn(bandwidth, written)):
-			case <-time.After(time.Second - time.Since(started)):
-			}
+			time.Sleep(utils.ExpectIoDoneIn(bandwidth, written) - elapsed)
 		} else {
-			time.Sleep(time.Second - time.Since(started))
+			time.Sleep(time.Second - elapsed)
 		}
 	}
 
