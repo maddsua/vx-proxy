@@ -37,6 +37,10 @@ type Bandwidther interface {
 	Bandwidth() (int, bool)
 }
 
+type Accounter interface {
+	Account(delta int)
+}
+
 // Piper splices two network connections into one and acts as a middleman between the hosts.
 //
 // 'RX' stands for data received from remote, where 'TX' stands for client-sent data respectively
@@ -93,7 +97,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 
 	var copyLimit = func(bandwidth int) error {
 
-		chunk := make([]byte, FramedThroughput(bandwidth))
+		chunk := make([]byte, FramedVolume(bandwidth))
 		started := time.Now()
 
 		read, err := src.Read(chunk)
@@ -155,14 +159,18 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 
 // Returns the amount of time it's expected for an IO operation to take. Bandwidth in bps, size in bytes
 func FramedIoDuration(bandwidth int, size int) time.Duration {
-	tp := FramedThroughput(bandwidth)
+	tp := FramedVolume(bandwidth)
 	return time.Duration(int64(time.Second) * int64(size) / int64(tp))
 }
 
-// Returns bandwidth converted into a chunk size in bytes (per second)
-func FramedThroughput(bandwidth int) int {
-	//	using a hacky ass formula: to_bits(size)*0.95
-	return ((bandwidth / 8) * 100) / 95
+// Converts network bandwidth into data volume
+func FramedVolume(bandwidth int) int {
+	return max(0, bandwidth/8)
+}
+
+// Converts data volume into network bandwidth
+func FramedBandwidth(volume int) int {
+	return max(0, volume*8)
 }
 
 // Creates a fake delay that can be used to limit data transfer rate

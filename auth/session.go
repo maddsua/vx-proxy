@@ -14,6 +14,7 @@ import (
 )
 
 type Session struct {
+	// todo: disassemble
 	SessionOptions
 
 	ID       uuid.UUID
@@ -39,6 +40,8 @@ type Session struct {
 	cancelCtx context.CancelFunc
 	wg        sync.WaitGroup
 	cc        atomic.Int64
+
+	//	todo: put a traffic controller instead of a stupid ass counter
 }
 
 type SessionOptions struct {
@@ -46,8 +49,9 @@ type SessionOptions struct {
 	IdleTimeout              time.Duration
 	MaxConcurrentConnections int
 	EnforceTotalBandwidth    bool
-	MaxRxRate                int
-	MaxTxRate                int
+
+	MaxRxRate int
+	MaxTxRate int
 }
 
 func (this *Session) Context() context.Context {
@@ -114,6 +118,9 @@ func (this *Session) Terminate() {
 }
 
 func (this *Session) closeDependencies() {
+
+	//	todo: also close traffic controls
+
 	if this.FramedHttpClient != nil {
 		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
 			tr.CloseIdleConnections()

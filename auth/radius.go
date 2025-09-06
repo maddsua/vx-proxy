@@ -494,13 +494,17 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		sess.IdleTimeout = time.Duration(val) * time.Second
 	}
 
+	//	todo: push to tctl (and apply defaults somehow)
 	if val := rfc4679.MaximumDataRateDownstream_Get(resp); val > 0 {
 		sess.MaxRxRate = int(val)
 	}
 
+	//	todo: push to tctl (and apply defaults somehow)
 	if val := rfc4679.MaximumDataRateUpstream_Get(resp); val > 0 {
 		sess.MaxTxRate = int(val)
 	}
+
+	//	todo: init traffic controler and stuff
 
 	sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), sess.Timeout)
 
