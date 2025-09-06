@@ -112,9 +112,6 @@ func (this *TrafficCtl) Next() *ConnCtl {
 
 	var getID = func() int {
 
-		this.mtx.Lock()
-		defer this.mtx.Unlock()
-
 		if this.nextId < math.MaxInt32 {
 			if this.nextId > 0 {
 				this.nextId++
