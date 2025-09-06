@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,9 +13,6 @@ import (
 )
 
 type Session struct {
-	// todo: disassemble
-	SessionOptions
-
 	ID       uuid.UUID
 	UserName *string
 	ClientID string
@@ -24,34 +20,37 @@ type Session struct {
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
 
+	//	Session state timeouts
+	Timeout     time.Duration
+	IdleTimeout time.Duration
+
+	//	Sets the limit of concurrent connection
+	MaxConcurrentConnections int
+
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
+
+	//	Traffic controller shit
+	TrafficCtl *TrafficCtl
 
 	//	Accounting tracking
 	lastActivity time.Time
 	lastUpdated  time.Time
 
-	//	Data volume accounting
-	AcctRxBytes atomic.Int64
-	AcctTxBytes atomic.Int64
+	//	Session wait group makes sure a session isn't closed until all the operations have been finished
+	Wg sync.WaitGroup
 
-	//	Session controls
+	//	Internal context controls
 	ctx       context.Context
 	cancelCtx context.CancelFunc
-	wg        sync.WaitGroup
-	cc        atomic.Int64
-
-	//	todo: put a traffic controller instead of a stupid ass counter
 }
 
 type SessionOptions struct {
 	Timeout                  time.Duration
 	IdleTimeout              time.Duration
 	MaxConcurrentConnections int
-	EnforceTotalBandwidth    bool
-
-	MaxRxRate int
-	MaxTxRate int
+	MaxRxRate                int
+	MaxTxRate                int
 }
 
 func (this *Session) Context() context.Context {
@@ -69,20 +68,6 @@ func (this *Session) IsCancelled() bool {
 	}
 
 	return this.ctx.Err() != nil
-}
-
-func (this *Session) TrackConn() {
-	this.wg.Add(1)
-	this.cc.Add(1)
-}
-
-func (this *Session) ConnDone() {
-	this.wg.Done()
-	this.cc.Add(-1)
-}
-
-func (this *Session) WaitDone() {
-	this.wg.Wait()
 }
 
 func (this *Session) IsIdle() bool {
@@ -105,7 +90,7 @@ func (this *Session) Expired() bool {
 }
 
 func (this *Session) CanAcceptConnection() bool {
-	return this.MaxConcurrentConnections <= 0 || this.cc.Load() < int64(this.MaxConcurrentConnections)
+	return this.MaxConcurrentConnections <= 0 || this.TrafficCtl.Connections() < this.MaxConcurrentConnections
 }
 
 func (this *Session) Terminate() {
@@ -119,68 +104,13 @@ func (this *Session) Terminate() {
 
 func (this *Session) closeDependencies() {
 
-	//	todo: also close traffic controls
+	this.TrafficCtl.Close()
 
 	if this.FramedHttpClient != nil {
 		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
 			tr.CloseIdleConnections()
 		}
 	}
-}
-
-func (this *Session) BandwidthRx() bandwidthCtl {
-
-	if this.EnforceTotalBandwidth {
-		return bandwidthCtl{
-			bandwidth: &this.MaxRxRate,
-			peers:     &this.cc,
-		}
-	}
-
-	return bandwidthCtl{bandwidth: &this.MaxRxRate}
-}
-
-func (this *Session) BandwidthTx() bandwidthCtl {
-
-	if this.EnforceTotalBandwidth {
-		return bandwidthCtl{
-			bandwidth: &this.MaxTxRate,
-			peers:     &this.cc,
-		}
-	}
-
-	return bandwidthCtl{bandwidth: &this.MaxTxRate}
-}
-
-// bandwidthCtl keeps pointers to both current one-line (RX or TX) bandwidth limit
-// as well as a pointer to the total number of concurrent connections
-type bandwidthCtl struct {
-	bandwidth *int
-	peers     *atomic.Int64
-}
-
-func (this bandwidthCtl) Bandwidth() (int, bool) {
-
-	if this.bandwidth == nil {
-		return 0, false
-	}
-
-	//	This is here to avoid having it's value changing under the pointer,
-	//	not to prevent pointer dereference bullshit. The pointer itself is never supposed to change
-	bandwidth := *this.bandwidth
-
-	if bandwidth <= 0 {
-		return 0, false
-	} else if this.peers == nil {
-		return bandwidth, true
-	}
-
-	peers := this.peers.Load()
-	if peers <= 1 {
-		return bandwidth, true
-	}
-
-	return bandwidth / int(peers), true
 }
 
 type CredentialsMiss struct {
@@ -199,7 +129,6 @@ type SessionConfig struct {
 	Timeout                  string `yaml:"timeout"`
 	IdleTimeout              string `yaml:"idle_timeout"`
 	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
-	EnforceTotalBandwidth    bool   `yaml:"enforce_total_bandwidth"`
 	MaxDownloadRate          string `yaml:"max_download_rate"`
 	MaxUploadRate            string `yaml:"max_upload_rate"`
 }
@@ -207,7 +136,6 @@ type SessionConfig struct {
 func (this SessionConfig) Parse() (SessionOptions, error) {
 
 	opts := SessionOptions{
-		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
 		MaxConcurrentConnections: this.MaxConcurrentConnections,
 	}
 

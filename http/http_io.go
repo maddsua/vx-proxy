@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/maddsua/vx-proxy/auth"
@@ -30,11 +29,8 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 			}
 
 			return &framedConn{
-				BaseConn:    baseConn,
-				RxAcct:      &sess.AcctRxBytes,
-				TxAcct:      &sess.AcctTxBytes,
-				RxBandwidth: sess.BandwidthRx(),
-				TxBandwidth: sess.BandwidthTx(),
+				BaseConn: baseConn,
+				Ctl:      sess.TrafficCtl.Next(),
 			}, nil
 		}
 
@@ -55,37 +51,34 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 
 type framedConn struct {
 	BaseConn net.Conn
-
-	RxAcct *atomic.Int64
-	TxAcct *atomic.Int64
-
-	RxBandwidth utils.Bandwidther
-	TxBandwidth utils.Bandwidther
+	Ctl      *auth.ConnCtl
 }
 
-//	note: should use a buffer here for smoother operations, but this would do for now
-
-func (this *framedConn) Read(b []byte) (int, error) {
+func (this *framedConn) Read(buff []byte) (int, error) {
 
 	var bandwidth int
-	if this.TxBandwidth != nil {
-		bandwidth, _ = this.TxBandwidth.Bandwidth()
+	if bw := this.Ctl.BandwidthRx(); bw != nil {
+		if val, has := bw.Bandwidth(); has {
+			bandwidth = val
+		}
 	}
+
+	acct := this.Ctl.AccounterRx()
 
 	//	a short path for when bandwidth limiter is not provided
 	if bandwidth <= 0 {
 
-		n, err := this.BaseConn.Read(b)
+		n, err := this.BaseConn.Read(buff)
 
-		if this.TxAcct != nil {
-			this.TxAcct.Add(int64(n))
+		if acct != nil {
+			acct.Account(n)
 		}
 
 		return n, err
 	}
 
 	//	the full bandwidth-controlled path
-	chunkSize := min(utils.FramedVolume(bandwidth), len(b))
+	chunkSize := min(utils.FramedVolume(bandwidth), len(buff))
 	chunk := make([]byte, chunkSize)
 	started := time.Now()
 
@@ -94,35 +87,39 @@ func (this *framedConn) Read(b []byte) (int, error) {
 		return read, err
 	}
 
-	if this.RxAcct != nil {
-		this.RxAcct.Add(int64(read))
+	if acct != nil {
+		acct.Account(read)
 	}
 
-	copy(b, chunk[:read])
+	copy(buff, chunk[:read])
 
 	utils.FramedIoWait(bandwidth, read, started)
 
 	return read, err
 }
 
-func (this *framedConn) Write(b []byte) (int, error) {
+func (this *framedConn) Write(buff []byte) (int, error) {
 
-	if len(b) == 0 {
+	if len(buff) == 0 {
 		return 0, nil
 	}
 
 	var bandwidth int
-	if this.RxBandwidth != nil {
-		bandwidth, _ = this.RxBandwidth.Bandwidth()
+	if bw := this.Ctl.BandwidthTx(); bw != nil {
+		if val, has := bw.Bandwidth(); has {
+			bandwidth = val
+		}
 	}
+
+	acct := this.Ctl.AccounterTx()
 
 	//	a short path for when bandwidth limiter is not provided
 	if bandwidth <= 0 {
 
-		n, err := this.BaseConn.Write(b)
+		n, err := this.BaseConn.Write(buff)
 
-		if this.TxAcct != nil {
-			this.TxAcct.Add(int64(n))
+		if acct != nil {
+			acct.Account(n)
 		}
 
 		return n, err
@@ -130,18 +127,18 @@ func (this *framedConn) Write(b []byte) (int, error) {
 
 	//	the full bandwidth-controlled path
 	var total int
-	n := len(b)
+	buffSize := len(buff)
 
-	for total < n {
+	for total < buffSize {
 
-		chunkSize := min(utils.FramedVolume(bandwidth), n-total)
-		chunk := b[total : total+chunkSize]
+		chunkSize := min(utils.FramedVolume(bandwidth), buffSize-total)
+		chunk := buff[total : total+chunkSize]
 
 		started := time.Now()
 		written, err := this.BaseConn.Write(chunk)
 
-		if this.TxAcct != nil {
-			this.TxAcct.Add(int64(written))
+		if acct != nil {
+			acct.Account(written)
 		}
 
 		total += written
@@ -159,6 +156,7 @@ func (this *framedConn) Write(b []byte) (int, error) {
 }
 
 func (this *framedConn) Close() error {
+	this.Ctl.Close()
 	return this.BaseConn.Close()
 }
 
@@ -170,14 +168,14 @@ func (this *framedConn) RemoteAddr() net.Addr {
 	return this.BaseConn.RemoteAddr()
 }
 
-func (this *framedConn) SetDeadline(t time.Time) error {
-	return this.BaseConn.SetDeadline(t)
+func (this *framedConn) SetDeadline(deadline time.Time) error {
+	return this.BaseConn.SetDeadline(deadline)
 }
 
-func (this *framedConn) SetReadDeadline(t time.Time) error {
-	return this.BaseConn.SetReadDeadline(t)
+func (this *framedConn) SetReadDeadline(deadline time.Time) error {
+	return this.BaseConn.SetReadDeadline(deadline)
 }
 
-func (this *framedConn) SetWriteDeadline(t time.Time) error {
-	return this.BaseConn.SetWriteDeadline(t)
+func (this *framedConn) SetWriteDeadline(deadline time.Time) error {
+	return this.BaseConn.SetWriteDeadline(deadline)
 }

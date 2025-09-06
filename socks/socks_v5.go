@@ -116,8 +116,8 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	sess.TrackConn()
-	defer sess.ConnDone()
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
 
 	cmd, err := readSocksV5Cmd(conn)
 	if err != nil {
@@ -249,16 +249,18 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		slog.String("username", *sess.UserName),
 		slog.String("host", string(dstAddr)))
 
-	//	let the data flow!
+	tctl := sess.TrafficCtl.Next()
+	defer tctl.Close()
+
 	piper := utils.ConnectionPiper{
 		Remote: dstConn,
 		Client: conn,
 
-		RxAcct: &sess.AcctRxBytes,
-		TxAcct: &sess.AcctTxBytes,
+		RxAcct: tctl.AccounterRx(),
+		TxAcct: tctl.AccounterTx(),
 
-		RxMaxRate: sess.BandwidthRx(),
-		TxMaxRate: sess.BandwidthTx(),
+		RxMaxRate: tctl.BandwidthRx(),
+		TxMaxRate: tctl.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {

@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -46,11 +45,11 @@ type Accounter interface {
 // 'RX' stands for data received from remote, where 'TX' stands for client-sent data respectively
 type ConnectionPiper struct {
 	Remote    net.Conn
-	RxAcct    *atomic.Int64
+	RxAcct    Accounter
 	RxMaxRate Bandwidther
 
 	Client    net.Conn
-	TxAcct    *atomic.Int64
+	TxAcct    Accounter
 	TxMaxRate Bandwidther
 }
 
@@ -91,7 +90,7 @@ func (this *ConnectionPiper) Pipe(ctx context.Context) (err error) {
 }
 
 // Direct connection piper function. Use with ConnectionPiper to get automatic controls such as cancellation and what not
-func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct *atomic.Int64) error {
+func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidther, acct Accounter) error {
 
 	const defaultChunkSize = 32 * 1024
 
@@ -107,7 +106,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 			written, err := dst.Write(chunk[:read])
 
 			if acct != nil {
-				acct.Add(int64(written))
+				acct.Account(written)
 			}
 
 			if err != nil {
@@ -127,7 +126,7 @@ func PipeIO(ctx context.Context, dst io.Writer, src io.Reader, limiter Bandwidth
 		written, err := io.CopyN(dst, src, defaultChunkSize)
 
 		if acct != nil {
-			acct.Add(written)
+			acct.Account(int(written))
 		}
 
 		return err

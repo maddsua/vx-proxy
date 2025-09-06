@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/maddsua/vx-proxy/utils"
@@ -13,7 +14,7 @@ import (
 func NewTrafficCtl() *TrafficCtl {
 
 	this := &TrafficCtl{
-		pool:   map[int]*connCtl{},
+		pool:   map[int]*ConnCtl{},
 		done:   make(chan struct{}),
 		ticker: time.NewTicker(time.Second),
 	}
@@ -25,13 +26,16 @@ func NewTrafficCtl() *TrafficCtl {
 
 type TrafficCtl struct {
 	nextId int
-	pool   map[int]*connCtl
+	pool   map[int]*ConnCtl
 	mtx    sync.Mutex
 	ticker *time.Ticker
 	done   chan struct{}
 
 	BandwidthRx int
 	BandwidthTx int
+
+	AccountingRx atomic.Int64
+	AccountingTx atomic.Int64
 }
 
 func (this *TrafficCtl) refreshRoutine() {
@@ -50,17 +54,28 @@ func (this *TrafficCtl) refreshRoutine() {
 				continue
 			}
 
-			entriesRx = append(entriesRx, TrafficState{ID: item.id, Volume: item.deltaRx, Bandwidth: item.bandwidthRx})
-			entriesTx = append(entriesTx, TrafficState{ID: item.id, Volume: item.deltaTx, Bandwidth: item.bandwidthTx})
+			entriesRx = append(entriesRx, TrafficState{ID: item.id, Volume: int(item.deltaRx.Load()), Bandwidth: item.bandwidthRx})
+			entriesTx = append(entriesTx, TrafficState{ID: item.id, Volume: int(item.deltaTx.Load()), Bandwidth: item.bandwidthTx})
 		}
 
 		RecalculateBandwidth(entriesRx, this.BandwidthRx)
 		RecalculateBandwidth(entriesTx, this.BandwidthTx)
 
 		for idx, itemRx := range entriesRx {
+
 			itemTx := entriesTx[idx]
-			this.pool[itemRx.ID].bandwidthRx = itemRx.Bandwidth
-			this.pool[itemTx.ID].bandwidthTx = itemTx.Bandwidth
+
+			if itemRx.ID != itemTx.ID {
+				panic(errors.New("logic error: RX and TX id mismatch"))
+			}
+
+			entry := this.pool[itemRx.ID]
+
+			entry.bandwidthRx = itemRx.Bandwidth
+			entry.bandwidthTx = itemTx.Bandwidth
+
+			this.AccountingRx.Add(entry.deltaRx.Swap(0))
+			this.AccountingTx.Add(entry.deltaTx.Swap(0))
 		}
 	}
 
@@ -86,7 +101,7 @@ func (this *TrafficCtl) Connections() int {
 	return len(this.pool)
 }
 
-func (this *TrafficCtl) Next() *connCtl {
+func (this *TrafficCtl) Next() *ConnCtl {
 
 	if this.pool == nil {
 		panic("not initialized")
@@ -125,7 +140,7 @@ func (this *TrafficCtl) Next() *connCtl {
 		return totalBandwidth / len(this.pool)
 	}
 
-	next := &connCtl{
+	next := &ConnCtl{
 		id:          getID(),
 		bandwidthRx: getBandwidth(this.BandwidthRx),
 		bandwidthTx: getBandwidth(this.BandwidthTx),
@@ -135,34 +150,34 @@ func (this *TrafficCtl) Next() *connCtl {
 	return next
 }
 
-type connCtl struct {
+type ConnCtl struct {
 	id   int
 	done bool
 
-	deltaRx int
-	deltaTx int
+	deltaRx atomic.Int64
+	deltaTx atomic.Int64
 
 	bandwidthRx int
 	bandwidthTx int
 }
 
-func (this *connCtl) Close() {
+func (this *ConnCtl) Close() {
 	this.done = true
 }
 
-func (this *connCtl) BandwidthRx() utils.Bandwidther {
+func (this *ConnCtl) BandwidthRx() utils.Bandwidther {
 	return connBandwidthCtl{val: &this.bandwidthRx}
 }
 
-func (this *connCtl) BandwidthTx() utils.Bandwidther {
+func (this *ConnCtl) BandwidthTx() utils.Bandwidther {
 	return connBandwidthCtl{val: &this.bandwidthTx}
 }
 
-func (this *connCtl) AccounterRx() utils.Accounter {
+func (this *ConnCtl) AccounterRx() utils.Accounter {
 	return connAccounter{val: &this.deltaRx}
 }
 
-func (this *connCtl) AccounterTx() utils.Accounter {
+func (this *ConnCtl) AccounterTx() utils.Accounter {
 	return connAccounter{val: &this.deltaTx}
 }
 
@@ -176,12 +191,12 @@ func (this connBandwidthCtl) Bandwidth() (int, bool) {
 }
 
 type connAccounter struct {
-	val *int
+	val *atomic.Int64
 }
 
 func (this connAccounter) Account(delta int) {
 	if delta > 0 {
-		*this.val += delta
+		this.val.Add(int64(delta))
 	}
 }
 

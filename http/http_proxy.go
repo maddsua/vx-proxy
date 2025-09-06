@@ -99,8 +99,8 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sess.TrackConn()
-	defer sess.ConnDone()
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
 
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
@@ -259,6 +259,9 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		slog.String("sid", sess.ID.String()),
 		slog.String("host", hostAddr))
 
+	tctl := sess.TrafficCtl.Next()
+	defer tctl.Close()
+
 	if buffered := rw.Reader.Buffered(); buffered > 0 {
 
 		buff, err := rw.Reader.Peek(buffered)
@@ -274,7 +277,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			return
 		}
 
-		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.BandwidthRx(), &sess.AcctRxBytes); err != nil {
+		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), tctl.BandwidthRx(), tctl.AccounterRx()); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -303,16 +306,15 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return
 	}
 
-	//	let the data flow!
 	piper := utils.ConnectionPiper{
 		Remote: dstConn,
 		Client: conn,
 
-		RxAcct: &sess.AcctRxBytes,
-		TxAcct: &sess.AcctTxBytes,
+		RxAcct: tctl.AccounterRx(),
+		TxAcct: tctl.AccounterTx(),
 
-		RxMaxRate: sess.BandwidthRx(),
-		TxMaxRate: sess.BandwidthTx(),
+		RxMaxRate: tctl.BandwidthRx(),
+		TxMaxRate: tctl.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {
