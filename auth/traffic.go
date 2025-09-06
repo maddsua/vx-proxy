@@ -183,7 +183,8 @@ func (this TrafficState) String() string {
 
 func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 
-	var minConnBandwidth = utils.FramedBandwidth(1024)
+	const minConnTransfer = 1024
+	var minConnBandwidth = utils.FramedBandwidth(minConnTransfer)
 
 	//	exit early if there's no entries
 	if len(entries) == 0 {
@@ -205,21 +206,22 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 	for idx, item := range entries {
 
 		maxTransfer := utils.FramedVolume(item.Bandwidth)
+		threshold := maxTransfer - minConnTransfer
 
-		if item.Volume < int64(maxTransfer) {
-
+		if item.Volume < int64(threshold) {
 			unused := utils.FramedBandwidth(maxTransfer - int(item.Volume))
-			newBandwidth := item.Bandwidth - unused
-
 			//	this thing here prevents connections from getting zero bandwidth
-			entries[idx].Bandwidth = max(newBandwidth, minConnBandwidth)
-			storedBandwidth += unused
+			newBandwidth := max(item.Bandwidth-unused, minConnBandwidth)
+			storedBandwidth += max(0, item.Bandwidth-newBandwidth)
+			entries[idx].Bandwidth = newBandwidth
 
 		} else {
 			saturated = append(saturated, &entries[idx])
 			saturatedVolume += item.Volume
 		}
 	}
+
+	//	todo: gotta account for the total quota here instead of just spreading unused quota between connections
 
 	if len(saturated) > 1 {
 		for _, item := range saturated {
