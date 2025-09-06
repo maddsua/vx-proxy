@@ -40,8 +40,8 @@ func (this *trafficCtl) refreshRoutine() {
 				continue
 			}
 
-			entriesRx = append(entriesRx, TrafficState{ID: item.id, Delta: item.deltaRx, Bandwidth: item.bandwidthRx})
-			entriesTx = append(entriesTx, TrafficState{ID: item.id, Delta: item.deltaTx, Bandwidth: item.bandwidthTx})
+			entriesRx = append(entriesRx, TrafficState{ID: item.id, Volume: item.deltaRx, Bandwidth: item.bandwidthRx})
+			entriesTx = append(entriesTx, TrafficState{ID: item.id, Volume: item.deltaTx, Bandwidth: item.bandwidthTx})
 		}
 
 		RecalculateBandwidth(entriesRx, this.BandwidthRx)
@@ -173,12 +173,12 @@ func (this connAccounter) Account(delta int) {
 
 type TrafficState struct {
 	ID        int
-	Delta     int64
+	Volume    int64
 	Bandwidth int
 }
 
 func (this TrafficState) String() string {
-	return fmt.Sprintf("{ ID: %d, Bandwidth: %d, Delta: %d }", this.ID, this.Bandwidth, this.Delta)
+	return fmt.Sprintf("{ ID: %d, Bandwidth: %d, Delta: %d }", this.ID, this.Bandwidth, this.Volume)
 }
 
 func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
@@ -196,16 +196,17 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 		return
 	}
 
-	var storedBandwidth int
 	var saturated []*TrafficState
+	var storedBandwidth int
+	var saturatedVolume int64
 
 	for idx, item := range entries {
 
 		maxTransfer := utils.FramedVolume(item.Bandwidth)
 
-		if item.Delta < int64(maxTransfer) {
+		if item.Volume < int64(maxTransfer) {
 
-			unused := utils.FramedBandwidth(maxTransfer - int(item.Delta))
+			unused := utils.FramedBandwidth(maxTransfer - int(item.Volume))
 			newBandwidth := item.Bandwidth - unused
 
 			//	this thing here prevents connections from getting zero bandwidth
@@ -219,15 +220,14 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 
 		} else {
 			saturated = append(saturated, &entries[idx])
+			saturatedVolume += item.Volume
 		}
 	}
 
-	//	todo: use a priority list to redistribute qouta
-
 	if len(saturated) > 0 {
-		boost := storedBandwidth / len(saturated)
 		for _, item := range saturated {
-			item.Bandwidth += boost
+			quota := 1 - float64(item.Volume)/float64(saturatedVolume)
+			item.Bandwidth += int(quota * float64(storedBandwidth))
 		}
 	}
 }
