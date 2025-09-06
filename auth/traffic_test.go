@@ -8,7 +8,7 @@ import (
 
 var expectBandwidth = func(t *testing.T, entry auth.TrafficState, expect int) {
 	if entry.Bandwidth != expect {
-		t.Fatalf("unexpected entry %d bandwidth: expected: %d, got: %d", entry.ID, expect, entry.Bandwidth)
+		t.Errorf("unexpected entry %d bandwidth: expected: %d, got: %d", entry.ID, expect, entry.Bandwidth)
 	}
 }
 
