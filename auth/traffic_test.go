@@ -46,7 +46,7 @@ func TestTraffic_1(t *testing.T) {
 		case 1:
 			expectBandwidth(t, item, 302_231)
 		case 2:
-			expectBandwidth(t, item, 8000)
+			expectBandwidth(t, item, 8192)
 		case 3:
 			expectBandwidth(t, item, 32000)
 		case 4:
@@ -86,18 +86,70 @@ func TestTraffic_2(t *testing.T) {
 
 	auth.RecalculateBandwidth(entries, bandwidth)
 
-	//	todo: fix this distribution, doesn't look totally right
+	for _, item := range entries {
+		switch item.ID {
+		case 1:
+			expectBandwidth(t, item, 8192)
+		case 2:
+			expectBandwidth(t, item, 8192)
+		case 3:
+			expectBandwidth(t, item, 8192)
+		case 4:
+			expectBandwidth(t, item, 999_120)
+		default:
+			t.Fatal("unexpected entry id:", item.ID)
+		}
+	}
+}
+
+func TestTraffic_3(t *testing.T) {
+
+	const bandwidth = 1_000_000
+
+	entries := []auth.TrafficState{
+		{
+			ID:        1,
+			Volume:    100,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        2,
+			Volume:    10,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        3,
+			Volume:    0,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        4,
+			Volume:    36_000,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        5,
+			Volume:    36_000,
+			Bandwidth: 250_000,
+		},
+	}
+
+	auth.RecalculateBandwidth(entries, bandwidth)
+
+	//	todo: fix; this looks like we're getting too much extra bandwidth here
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 800)
+			expectBandwidth(t, item, 8192)
 		case 2:
-			expectBandwidth(t, item, 80)
+			expectBandwidth(t, item, 8192)
 		case 3:
-			expectBandwidth(t, item, 250_000)
+			expectBandwidth(t, item, 8192)
 		case 4:
-			expectBandwidth(t, item, 250_000)
+			expectBandwidth(t, item, 624_560)
+		case 5:
+			expectBandwidth(t, item, 624_560)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}

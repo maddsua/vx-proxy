@@ -183,6 +183,8 @@ func (this TrafficState) String() string {
 
 func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 
+	var minConnBandwidth = utils.FramedBandwidth(1024)
+
 	//	exit early if there's no entries
 	if len(entries) == 0 {
 		return
@@ -210,12 +212,7 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 			newBandwidth := item.Bandwidth - unused
 
 			//	this thing here prevents connections from getting zero bandwidth
-			if newBandwidth > 0 {
-				entries[idx].Bandwidth = newBandwidth
-			} else {
-				entries[idx].Bandwidth = bandwidth / len(entries)
-			}
-
+			entries[idx].Bandwidth = max(newBandwidth, minConnBandwidth)
 			storedBandwidth += unused
 
 		} else {
@@ -224,10 +221,12 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 		}
 	}
 
-	if len(saturated) > 0 {
+	if len(saturated) > 1 {
 		for _, item := range saturated {
 			quota := 1 - float64(item.Volume)/float64(saturatedVolume)
 			item.Bandwidth += int(quota * float64(storedBandwidth))
 		}
+	} else if len(saturated) == 1 {
+		saturated[0].Bandwidth += storedBandwidth
 	}
 }
