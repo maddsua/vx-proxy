@@ -46,8 +46,9 @@ type SessionOptions struct {
 	IdleTimeout              time.Duration
 	MaxConcurrentConnections int
 	EnforceTotalBandwidth    bool
-	MaxRxRate                int
-	MaxTxRate                int
+
+	MaxRxRate int
+	MaxTxRate int
 }
 
 func (this *Session) Context() context.Context {
@@ -114,6 +115,9 @@ func (this *Session) Terminate() {
 }
 
 func (this *Session) closeDependencies() {
+
+	//	todo: also close traffic controls
+
 	if this.FramedHttpClient != nil {
 		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
 			tr.CloseIdleConnections()

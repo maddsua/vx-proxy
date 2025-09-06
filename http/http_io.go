@@ -85,7 +85,7 @@ func (this *framedConn) Read(b []byte) (int, error) {
 	}
 
 	//	the full bandwidth-controlled path
-	chunkSize := min(utils.FramedThroughput(bandwidth), len(b))
+	chunkSize := min(utils.FramedVolume(bandwidth), len(b))
 	chunk := make([]byte, chunkSize)
 	started := time.Now()
 
@@ -134,7 +134,7 @@ func (this *framedConn) Write(b []byte) (int, error) {
 
 	for total < n {
 
-		chunkSize := min(utils.FramedThroughput(bandwidth), n-total)
+		chunkSize := min(utils.FramedVolume(bandwidth), n-total)
 		chunk := b[total : total+chunkSize]
 
 		started := time.Now()
