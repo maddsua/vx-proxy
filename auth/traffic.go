@@ -23,8 +23,6 @@ type trafficCtl struct {
 
 func (this *trafficCtl) refreshRoutine() {
 
-	//	todo: add cleanups
-
 	this.done = make(chan struct{})
 	this.ticker = time.NewTicker(time.Second)
 
@@ -35,7 +33,13 @@ func (this *trafficCtl) refreshRoutine() {
 
 		var entriesRx, entriesTx []TrafficState
 
-		for _, item := range this.pool {
+		for key, item := range this.pool {
+
+			if item.done {
+				delete(this.pool, key)
+				continue
+			}
+
 			entriesRx = append(entriesRx, TrafficState{ID: item.id, Delta: item.deltaRx, Bandwidth: item.bandwidthRx})
 			entriesTx = append(entriesTx, TrafficState{ID: item.id, Delta: item.deltaTx, Bandwidth: item.bandwidthTx})
 		}
@@ -179,10 +183,12 @@ func (this TrafficState) String() string {
 
 func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 
+	//	exit early if there's no entries
 	if len(entries) == 0 {
 		return
 	}
 
+	//	another early exit for the cases when bandwidth is set as unlimited
 	if bandwidth <= 0 {
 		for idx := range entries {
 			entries[idx].Bandwidth = 0
