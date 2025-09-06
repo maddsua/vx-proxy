@@ -200,6 +200,7 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 	}
 
 	var saturated []*TrafficState
+	var usedBandwidth int
 	var storedBandwidth int
 	var saturatedVolume int64
 
@@ -214,7 +215,7 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 			newBandwidth := max(item.Bandwidth-unused, minConnBandwidth)
 			storedBandwidth += max(0, item.Bandwidth-newBandwidth)
 			entries[idx].Bandwidth = newBandwidth
-
+			usedBandwidth += newBandwidth
 		} else {
 			saturated = append(saturated, &entries[idx])
 			saturatedVolume += item.Volume
@@ -222,6 +223,7 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 	}
 
 	//	todo: gotta account for the total quota here instead of just spreading unused quota between connections
+	//	todo: calculate while taking in account 'usedBandwidth'
 
 	if len(saturated) > 1 {
 		for _, item := range saturated {
