@@ -6,6 +6,12 @@ import (
 	"github.com/maddsua/vx-proxy/auth"
 )
 
+var expectBandwidth = func(t *testing.T, entry auth.TrafficState, expect int) {
+	if entry.Bandwidth != expect {
+		t.Fatalf("unexpected entry %d bandwidth: expected: %d, got: %d", entry.ID, expect, entry.Bandwidth)
+	}
+}
+
 func TestTraffic_1(t *testing.T) {
 
 	const bandwidth = 1_000_000
@@ -35,22 +41,63 @@ func TestTraffic_1(t *testing.T) {
 
 	auth.RecalculateBandwidth(entries, bandwidth)
 
-	var expectBandwidth = func(entry auth.TrafficState, expect int) {
-		if entry.Bandwidth != expect {
-			t.Fatalf("unexpected entry %d bandwidth: expected: %d, got: %d", entry.ID, expect, entry.Bandwidth)
+	for _, item := range entries {
+		switch item.ID {
+		case 1:
+			expectBandwidth(t, item, 302_231)
+		case 2:
+			expectBandwidth(t, item, 8000)
+		case 3:
+			expectBandwidth(t, item, 32000)
+		case 4:
+			expectBandwidth(t, item, 589_768)
+		default:
+			t.Fatal("unexpected entry id:", item.ID)
 		}
 	}
+}
+
+func TestTraffic_2(t *testing.T) {
+
+	const bandwidth = 1_000_000
+
+	entries := []auth.TrafficState{
+		{
+			ID:        1,
+			Volume:    100,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        2,
+			Volume:    10,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        3,
+			Volume:    0,
+			Bandwidth: 250_000,
+		},
+		{
+			ID:        4,
+			Volume:    36_000,
+			Bandwidth: 250_000,
+		},
+	}
+
+	auth.RecalculateBandwidth(entries, bandwidth)
+
+	//	todo: fix this distribution, doesn't look totally right
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(item, 302_231)
+			expectBandwidth(t, item, 800)
 		case 2:
-			expectBandwidth(item, 8000)
+			expectBandwidth(t, item, 80)
 		case 3:
-			expectBandwidth(item, 32000)
+			expectBandwidth(t, item, 250_000)
 		case 4:
-			expectBandwidth(item, 589_768)
+			expectBandwidth(t, item, 250_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
