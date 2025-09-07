@@ -47,15 +47,18 @@ func (this *TrafficCtl) refreshRoutine() {
 
 		var entriesRx, entriesTx []TrafficState
 
-		for key, item := range this.pool {
+		for key, entry := range this.pool {
 
-			if item.done {
+			this.AccountingRx.Add(entry.deltaRx.Swap(0))
+			this.AccountingTx.Add(entry.deltaTx.Swap(0))
+
+			if entry.done {
 				delete(this.pool, key)
 				continue
 			}
 
-			entriesRx = append(entriesRx, TrafficState{ID: item.id, Volume: int(item.deltaRx.Load()), Bandwidth: item.bandwidthRx})
-			entriesTx = append(entriesTx, TrafficState{ID: item.id, Volume: int(item.deltaTx.Load()), Bandwidth: item.bandwidthTx})
+			entriesRx = append(entriesRx, TrafficState{ID: entry.id, Volume: int(entry.deltaRx.Load()), Bandwidth: entry.bandwidthRx})
+			entriesTx = append(entriesTx, TrafficState{ID: entry.id, Volume: int(entry.deltaTx.Load()), Bandwidth: entry.bandwidthTx})
 		}
 
 		RecalculateBandwidthLax(entriesRx, this.BandwidthRx)
@@ -73,9 +76,6 @@ func (this *TrafficCtl) refreshRoutine() {
 
 			entry.bandwidthRx = itemRx.Bandwidth
 			entry.bandwidthTx = itemTx.Bandwidth
-
-			this.AccountingRx.Add(entry.deltaRx.Swap(0))
-			this.AccountingTx.Add(entry.deltaTx.Swap(0))
 		}
 	}
 
