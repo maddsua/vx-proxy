@@ -25,7 +25,7 @@ type Session struct {
 	IdleTimeout time.Duration
 
 	//	Sets the limit of concurrent connection
-	MaxConcurrentConnections int
+	ConnectionLimit int
 
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
@@ -49,7 +49,7 @@ type SessionOptions struct {
 	Timeout     time.Duration
 	IdleTimeout time.Duration
 
-	MaxConcurrentConnections int
+	ConnectionLimit int
 
 	ActualRateRx int
 	ActualRateTx int
@@ -98,7 +98,7 @@ func (this *Session) Expired() bool {
 }
 
 func (this *Session) CanAcceptConnection() bool {
-	return this.MaxConcurrentConnections <= 0 || this.TrafficCtl.Connections() < this.MaxConcurrentConnections
+	return this.ConnectionLimit <= 0 || this.TrafficCtl.Connections() < this.ConnectionLimit
 }
 
 func (this *Session) Close() {
@@ -137,7 +137,7 @@ type SessionConfig struct {
 	Timeout     string `yaml:"timeout"`
 	IdleTimeout string `yaml:"idle_timeout"`
 
-	MaxConcurrentConnections int `yaml:"max_concurrent_connections"`
+	ConnectionLimit int `yaml:"connection_limit"`
 
 	ActualRateRx string `yaml:"actual_rate_rx"`
 	ActualRateTx string `yaml:"actual_rate_tx"`
@@ -173,8 +173,8 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		opts.IdleTimeout = val
 	}
 
-	if attr := this.MaxConcurrentConnections; attr > 0 {
-		opts.MaxConcurrentConnections = attr
+	if attr := this.ConnectionLimit; attr > 0 {
+		opts.ConnectionLimit = attr
 	}
 
 	if attr := this.ActualRateRx; attr != "" {
@@ -240,8 +240,8 @@ func (this SessionConfig) Unwrap() SessionOptions {
 		opts.IdleTimeout = 5 * time.Minute
 	}
 
-	if opts.MaxConcurrentConnections == 0 {
-		opts.MaxConcurrentConnections = 256
+	if opts.ConnectionLimit == 0 {
+		opts.ConnectionLimit = 256
 	}
 
 	if opts.ActualRateRx == 0 {
