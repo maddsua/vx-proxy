@@ -213,8 +213,6 @@ type TrafficState struct {
 // (gives a better user experience but creates intermittent overprovision)
 func RecalculateBandwidthLax(entries []TrafficState, bandwidth int) {
 
-	const margin = 10 * 8 * 1024
-
 	//	exit early if there's no entries
 	if len(entries) == 0 {
 		return
@@ -234,6 +232,7 @@ func RecalculateBandwidthLax(entries []TrafficState, bandwidth int) {
 	var svolume int64
 
 	baseline := bandwidth / len(entries)
+	margin := baseline / 10
 
 	for idx := range entries {
 
