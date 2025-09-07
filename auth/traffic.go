@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -58,8 +57,8 @@ func (this *TrafficCtl) refreshRoutine() {
 			entriesTx = append(entriesTx, TrafficState{ID: item.id, Volume: int(item.deltaTx.Load()), Bandwidth: item.bandwidthTx})
 		}
 
-		RecalculateBandwidth(entriesRx, this.BandwidthRx)
-		RecalculateBandwidth(entriesTx, this.BandwidthTx)
+		RecalculateBandwidthLax(entriesRx, this.BandwidthRx)
+		RecalculateBandwidthLax(entriesTx, this.BandwidthTx)
 
 		for idx, itemRx := range entriesRx {
 
@@ -203,14 +202,11 @@ type TrafficState struct {
 	Bandwidth int
 }
 
-func (this TrafficState) String() string {
-	return fmt.Sprintf("{ ID: %d, Bandwidth: %d, Delta: %d }", this.ID, this.Bandwidth, this.Volume)
-}
+// Redistributes connection bandwidth without sticking to a strict limit
+// (gives a better user experience but creates intermittent overprovision)
+func RecalculateBandwidthLax(entries []TrafficState, bandwidth int) {
 
-func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
-
-	const minConnTransfer = 1024
-	var minConnBandwidth = utils.FramedBandwidth(minConnTransfer)
+	const margin = 10 * 8 * 1024
 
 	//	exit early if there's no entries
 	if len(entries) == 0 {
@@ -226,48 +222,48 @@ func RecalculateBandwidth(entries []TrafficState, bandwidth int) {
 	}
 
 	var saturated []*TrafficState
-	var svolume int64
-	var used int
 
-	connBaseBandwidth := bandwidth / len(entries)
+	var extra int
+	var svolume int64
+
+	baseline := bandwidth / len(entries)
 
 	for idx := range entries {
 
 		item := &entries[idx]
 
 		equivBandwidth := utils.FramedBandwidth(item.Volume)
-		threshold := equivBandwidth + minConnBandwidth
 
-		//	this makes sure connections are able to trigger 'saturation' state and grow up
-		if threshold >= connBaseBandwidth || threshold >= item.Bandwidth {
+		if (equivBandwidth + margin) > baseline {
 			saturated = append(saturated, item)
 			svolume += int64(item.Volume)
 		} else {
-			// this ensures no connection is scaled down to zero, to prevent lockups
-			item.Bandwidth = max(minConnBandwidth, equivBandwidth)
+			extra += max(0, baseline-equivBandwidth)
 		}
 
-		used += item.Bandwidth
+		item.Bandwidth = baseline
 	}
 
-	if avail := bandwidth - used; avail > 0 && len(saturated) > 0 {
+	if extra > 0 {
 
-		if len(saturated) == 1 {
-			saturated[0].Bandwidth += avail
-			return
+		var distribute = func(volume int) int {
+
+			nconn := len(saturated)
+
+			if nconn < 2 {
+				return extra
+			}
+
+			delta := int(((1 - float64(volume)/float64(svolume)) / float64(nconn-1)) * float64(extra))
+			if delta > 0 && delta < extra {
+				return delta
+			}
+
+			return extra / nconn
 		}
 
 		for _, entry := range saturated {
-			quota := (1 - float64(entry.Volume)/float64(svolume)) / float64(max(1, len(saturated)-1))
-			extra := int(quota * float64(avail))
-			entry.Bandwidth += extra
-			used += extra
-		}
-	}
-
-	if extra := (bandwidth - used) / len(entries); extra > 0 {
-		for idx := range entries {
-			entries[idx].Bandwidth += extra
+			entry.Bandwidth += distribute(entry.Volume)
 		}
 	}
 }

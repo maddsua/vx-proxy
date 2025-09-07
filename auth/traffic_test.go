@@ -39,18 +39,18 @@ func TestTraffic_InitDistribution(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 479_904)
+			expectBandwidth(t, item, 480_000)
 		case 2:
-			expectBandwidth(t, item, 8192)
+			expectBandwidth(t, item, 250_000)
 		case 3:
-			expectBandwidth(t, item, 32000)
+			expectBandwidth(t, item, 250_000)
 		case 4:
-			expectBandwidth(t, item, 479_904)
+			expectBandwidth(t, item, 480_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -84,18 +84,18 @@ func TestTraffic_DynamicRedistribution(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 490_410)
+			expectBandwidth(t, item, 389_031)
 		case 2:
-			expectBandwidth(t, item, 142_002)
+			expectBandwidth(t, item, 250_000)
 		case 3:
-			expectBandwidth(t, item, 159_587)
+			expectBandwidth(t, item, 250_000)
 		case 4:
-			expectBandwidth(t, item, 208_000)
+			expectBandwidth(t, item, 570_776)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -129,18 +129,18 @@ func TestTraffic_Idle(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 226_000)
+			expectBandwidth(t, item, 250_000)
 		case 2:
-			expectBandwidth(t, item, 170_000)
+			expectBandwidth(t, item, 250_000)
 		case 3:
-			expectBandwidth(t, item, 338_000)
+			expectBandwidth(t, item, 728_000)
 		case 4:
-			expectBandwidth(t, item, 266_000)
+			expectBandwidth(t, item, 250_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -164,14 +164,14 @@ func TestTraffic_ScaleDown(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 485_292)
+			expectBandwidth(t, item, 500_000)
 		case 2:
-			expectBandwidth(t, item, 514_707)
+			expectBandwidth(t, item, 500_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -205,18 +205,18 @@ func TestTraffic_ScaleUp(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 307_904)
+			expectBandwidth(t, item, 250_000)
 		case 2:
-			expectBandwidth(t, item, 251_904)
+			expectBandwidth(t, item, 250_000)
 		case 3:
-			expectBandwidth(t, item, 220_096)
+			expectBandwidth(t, item, 250_000)
 		case 4:
-			expectBandwidth(t, item, 220_096)
+			expectBandwidth(t, item, 250_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -250,18 +250,18 @@ func TestTraffic_BandwidthUp(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 2_384_192)
+			expectBandwidth(t, item, 2_500_000)
 		case 2:
-			expectBandwidth(t, item, 2_496_192)
+			expectBandwidth(t, item, 2_500_000)
 		case 3:
-			expectBandwidth(t, item, 2_559_808)
+			expectBandwidth(t, item, 2_500_000)
 		case 4:
-			expectBandwidth(t, item, 2_559_808)
+			expectBandwidth(t, item, 2_500_000)
 		default:
 			t.Fatal("unexpected entry id:", item.ID)
 		}
@@ -300,18 +300,18 @@ func TestTraffic_ScaleUpAndActiate(t *testing.T) {
 		},
 	}
 
-	auth.RecalculateBandwidth(entries, bandwidth)
+	auth.RecalculateBandwidthLax(entries, bandwidth)
 
 	for _, item := range entries {
 		switch item.ID {
 		case 1:
-			expectBandwidth(t, item, 40_000)
+			expectBandwidth(t, item, 200_000)
 		case 2:
-			expectBandwidth(t, item, 40_000)
+			expectBandwidth(t, item, 200_000)
 		case 3:
-			expectBandwidth(t, item, 40_000)
+			expectBandwidth(t, item, 200_000)
 		case 4:
-			expectBandwidth(t, item, 40_000)
+			expectBandwidth(t, item, 200_000)
 		case 5:
 			expectBandwidth(t, item, 840_000)
 		default:
