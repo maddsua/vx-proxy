@@ -451,8 +451,6 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		ClientID: "<nil>",
 
 		FramedIP:                 auth.NasAddr,
-		Timeout:                  this.defaultSessOpts.Timeout,
-		IdleTimeout:              this.defaultSessOpts.IdleTimeout,
 		MaxConcurrentConnections: this.defaultSessOpts.MaxConcurrentConnections,
 
 		TrafficCtl: NewTrafficCtl(),
@@ -499,10 +497,12 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 func (this *radiusController) applySessionOpts(sess *Session, packet *radius.Packet) {
 
-	if val := rfc2865.SessionTimeout_Get(packet); val > 0 {
-		sess.Timeout = time.Duration(val) * time.Second
-	} else {
-		sess.Timeout = this.defaultSessOpts.Timeout
+	if sess.ctx == nil {
+		if val := rfc2865.SessionTimeout_Get(packet); val > 0 {
+			sess.Timeout = time.Duration(val) * time.Second
+		} else {
+			sess.Timeout = this.defaultSessOpts.Timeout
+		}
 	}
 
 	if val := rfc2865.IdleTimeout_Get(packet); val > 0 {
