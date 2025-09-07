@@ -36,8 +36,12 @@ type RadiusConfig struct {
 type UserConfig struct {
 	Name       string `yaml:"name"`
 	Pass       string `yaml:"pass"`
-	MaxRx      int    `yaml:"max_rx"`
-	MaxTx      int    `yaml:"max_tx"`
+	RateRx     int    `yaml:"rate_rx"`
+	RateTx     int    `yaml:"rate_tx"`
+	MinRateRx  int    `yaml:"min_rate_rx"`
+	MinRateTx  int    `yaml:"min_rate_tx"`
+	MaxRateRx  int    `yaml:"max_rate_rx"`
+	MaxRateTx  int    `yaml:"max_rate_tx"`
 	ProxyAddr  string `yaml:"proxy_addr"`
 	ProxyPort  int    `yaml:"proxy_port"`
 	SessionTTL int    `yaml:"session_ttl"`

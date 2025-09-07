@@ -374,8 +374,12 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
 		slog.String("user", sess.ClientID),
-		slog.Int("max_dl", sess.TrafficCtl.BandwidthRx),
-		slog.Int("max_up", sess.TrafficCtl.BandwidthTx))
+		slog.Int("dl", sess.TrafficCtl.ActualRateRx),
+		slog.Int("up", sess.TrafficCtl.ActualRateTx),
+		slog.Int("max_dl", sess.TrafficCtl.MaximumRateRx),
+		slog.Int("max_up", sess.TrafficCtl.MaximumRateTx),
+		slog.Int("min_dl", sess.TrafficCtl.MinimumRateRx),
+		slog.Int("min_up", sess.TrafficCtl.MinimumRateTx))
 
 	this.sessState.Store(sessKey, sess)
 
@@ -486,29 +490,62 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		}
 	}
 
-	if val := rfc2865.SessionTimeout_Get(resp); val > 0 {
-		sess.Timeout = time.Duration(val) * time.Second
-	}
-
-	if val := rfc2865.IdleTimeout_Get(resp); val > 0 {
-		sess.IdleTimeout = time.Duration(val) * time.Second
-	}
-
-	if val := rfc4679.MaximumDataRateDownstream_Get(resp); val > 0 {
-		sess.TrafficCtl.BandwidthRx = int(val)
-	} else {
-		sess.TrafficCtl.BandwidthTx = this.defaultSessOpts.MaxRxRate
-	}
-
-	if val := rfc4679.MaximumDataRateUpstream_Get(resp); val > 0 {
-		sess.TrafficCtl.BandwidthTx = int(val)
-	} else {
-		sess.TrafficCtl.BandwidthTx = this.defaultSessOpts.MaxTxRate
-	}
+	this.applySessionOpts(&sess, resp)
 
 	sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), sess.Timeout)
 
 	return &sess, nil
+}
+
+func (this *radiusController) applySessionOpts(sess *Session, packet *radius.Packet) {
+
+	if val := rfc2865.SessionTimeout_Get(packet); val > 0 {
+		sess.Timeout = time.Duration(val) * time.Second
+	} else {
+		sess.Timeout = this.defaultSessOpts.Timeout
+	}
+
+	if val := rfc2865.IdleTimeout_Get(packet); val > 0 {
+		sess.IdleTimeout = time.Duration(val) * time.Second
+	} else {
+		sess.IdleTimeout = this.defaultSessOpts.IdleTimeout
+	}
+
+	if val := rfc4679.ActualDataRateDownstream_Get(packet); val > 0 {
+		sess.TrafficCtl.ActualRateRx = int(val)
+	} else {
+		sess.TrafficCtl.ActualRateRx = this.defaultSessOpts.ActualRateRx
+	}
+
+	if val := rfc4679.ActualDataRateUpstream_Get(packet); val > 0 {
+		sess.TrafficCtl.ActualRateTx = int(val)
+	} else {
+		sess.TrafficCtl.ActualRateTx = this.defaultSessOpts.ActualRateTx
+	}
+
+	if val := rfc4679.MaximumDataRateDownstream_Get(packet); val > 0 {
+		sess.TrafficCtl.MaximumRateRx = int(val)
+	} else {
+		sess.TrafficCtl.MaximumRateRx = this.defaultSessOpts.MaximumRateRx
+	}
+
+	if val := rfc4679.MaximumDataRateUpstream_Get(packet); val > 0 {
+		sess.TrafficCtl.MaximumRateTx = int(val)
+	} else {
+		sess.TrafficCtl.MaximumRateTx = this.defaultSessOpts.MaximumRateTx
+	}
+
+	if val := rfc4679.MinimumDataRateDownstream_Get(packet); val > 0 {
+		sess.TrafficCtl.MinimumRateRx = int(val)
+	} else {
+		sess.TrafficCtl.MinimumRateRx = this.defaultSessOpts.MinimumRateRx
+	}
+
+	if val := rfc4679.MinimumDataRateUpstream_Get(packet); val > 0 {
+		sess.TrafficCtl.MinimumRateTx = int(val)
+	} else {
+		sess.TrafficCtl.MinimumRateTx = this.defaultSessOpts.MinimumRateTx
+	}
 }
 
 func (this *radiusController) acctStartSession(ctx context.Context, sess *Session) error {
@@ -681,27 +718,17 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		return
 	}
 
-	if idleTimeout := rfc2865.IdleTimeout_Get(req.Packet); idleTimeout > 0 {
-		sess.IdleTimeout = time.Duration(idleTimeout) * time.Second
-	}
-
-	if val := rfc4679.MaximumDataRateDownstream_Get(req.Packet); val > 0 {
-		sess.TrafficCtl.BandwidthRx = int(val)
-	} else {
-		sess.TrafficCtl.BandwidthTx = this.defaultSessOpts.MaxRxRate
-	}
-
-	if val := rfc4679.MaximumDataRateUpstream_Get(req.Packet); val > 0 {
-		sess.TrafficCtl.BandwidthTx = int(val)
-	} else {
-		sess.TrafficCtl.BandwidthTx = this.defaultSessOpts.MaxTxRate
-	}
+	this.applySessionOpts(sess, req.Packet)
 
 	slog.Info("RADIUS DAC: CoA OK",
 		slog.String("sid", sess.ID.String()),
-		slog.Int("max_dl", sess.TrafficCtl.BandwidthRx),
-		slog.Int("max_up", sess.TrafficCtl.BandwidthTx),
 		slog.Duration("idle_t", sess.IdleTimeout),
+		slog.Int("dl", sess.TrafficCtl.ActualRateRx),
+		slog.Int("up", sess.TrafficCtl.ActualRateTx),
+		slog.Int("max_dl", sess.TrafficCtl.MaximumRateRx),
+		slog.Int("max_up", sess.TrafficCtl.MaximumRateTx),
+		slog.Int("min_dl", sess.TrafficCtl.MinimumRateRx),
+		slog.Int("min_up", sess.TrafficCtl.MinimumRateTx),
 		slog.String("dac_addr", req.RemoteAddr.String()))
 
 	wrt.Write(req.Response(radius.CodeCoAACK))

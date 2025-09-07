@@ -91,32 +91,54 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 		slog.String("nas_ip", nasIP.String()),
 		slog.Int("nas_port", int(nasPort)))
 
-	if user.MaxRx > 0 {
-		if err := rfc4679.MaximumDataRateDownstream_Set(resp, rfc4679.MaximumDataRateDownstream(user.MaxRx)); err != nil {
+	if val := user.RateRx; val > 0 {
+		if err := rfc4679.ActualDataRateDownstream_Set(resp, rfc4679.ActualDataRateDownstream(val)); err != nil {
+			panic(fmt.Errorf("rfc4679.ActualDataRateDownstream_Set: %v", err))
+		}
+	}
+
+	if val := user.RateTx; val > 0 {
+		if err := rfc4679.ActualDataRateUpstream_Set(resp, rfc4679.ActualDataRateUpstream(val)); err != nil {
+			panic(fmt.Errorf("rfc4679.ActualDataRateUpstream_Set: %v", err))
+		}
+	}
+
+	if val := user.MinRateRx; val > 0 {
+		if err := rfc4679.MinimumDataRateDownstream_Set(resp, rfc4679.MinimumDataRateDownstream(val)); err != nil {
+			panic(fmt.Errorf("rfc4679.MinimumDataRateDownstream_Set: %v", err))
+		}
+	}
+
+	if val := user.MinRateTx; val > 0 {
+		if err := rfc4679.MinimumDataRateUpstream_Set(resp, rfc4679.MinimumDataRateUpstream(val)); err != nil {
+			panic(fmt.Errorf("rfc4679.MinimumDataRateUpstream_Set: %v", err))
+		}
+	}
+
+	if val := user.MaxRateRx; val > 0 {
+		if err := rfc4679.MaximumDataRateDownstream_Set(resp, rfc4679.MaximumDataRateDownstream(val)); err != nil {
 			panic(fmt.Errorf("rfc4679.MaximumDataRateDownstream_Set: %v", err))
 		}
 	}
 
-	if user.MaxTx > 0 {
-		if err := rfc4679.MaximumDataRateUpstream_Set(resp, rfc4679.MaximumDataRateUpstream(user.MaxTx)); err != nil {
+	if val := user.MaxRateTx; val > 0 {
+		if err := rfc4679.MaximumDataRateUpstream_Set(resp, rfc4679.MaximumDataRateUpstream(val)); err != nil {
 			panic(fmt.Errorf("rfc4679.MaximumDataRateUpstream_Set: %v", err))
 		}
 	}
 
-	if user.SessionTTL > 0 {
-		if err := rfc2865.SessionTimeout_Set(resp, rfc2865.SessionTimeout(user.SessionTTL)); err != nil {
+	if val := user.SessionTTL; val > 0 {
+		if err := rfc2865.SessionTimeout_Set(resp, rfc2865.SessionTimeout(val)); err != nil {
 			panic(fmt.Errorf("rfc2865.SessionTimeout_Set: %v", err))
 		}
 	}
 
 	sessionID := uuid.New()
-
 	if err := rfc2866.AcctSessionID_Set(resp, sessionID[:]); err != nil {
 		panic(fmt.Errorf("rfc2866.AcctSessionID_Set: %v", err))
 	}
 
 	userID := uuid.New()
-
 	if err := rfc4372.ChargeableUserIdentity_Set(resp, userID[:]); err != nil {
 		panic(fmt.Errorf("rfc4372.ChargeableUserIdentity_Set: %v", err))
 	}

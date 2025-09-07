@@ -46,11 +46,19 @@ type Session struct {
 }
 
 type SessionOptions struct {
-	Timeout                  time.Duration
-	IdleTimeout              time.Duration
+	Timeout     time.Duration
+	IdleTimeout time.Duration
+
 	MaxConcurrentConnections int
-	MaxRxRate                int
-	MaxTxRate                int
+
+	ActualRateRx int
+	ActualRateTx int
+
+	MaximumRateRx int
+	MaximumRateTx int
+
+	MinimumRateRx int
+	MinimumRateTx int
 }
 
 func (this *Session) Context() context.Context {
@@ -126,11 +134,19 @@ func (this *CredentialsMiss) Expired() bool {
 //
 //	These options can be overriden by radius
 type SessionConfig struct {
-	Timeout                  string `yaml:"timeout"`
-	IdleTimeout              string `yaml:"idle_timeout"`
-	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
-	MaxDownloadRate          string `yaml:"max_download_rate"`
-	MaxUploadRate            string `yaml:"max_upload_rate"`
+	Timeout     string `yaml:"timeout"`
+	IdleTimeout string `yaml:"idle_timeout"`
+
+	MaxConcurrentConnections int `yaml:"max_concurrent_connections"`
+
+	ActualRateRx string `yaml:"actual_rate_rx"`
+	ActualRateTx string `yaml:"actual_rate_tx"`
+
+	MaximumRateRx string `yaml:"maximum_rate_rx"`
+	MaximumRateTx string `yaml:"maximum_rate_tx"`
+
+	MinimumRateRx string `yaml:"minimum_rate_rx"`
+	MinimumRateTx string `yaml:"minimum_rate_tx"`
 }
 
 func (this SessionConfig) Parse() (SessionOptions, error) {
@@ -163,20 +179,52 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		return opts, fmt.Errorf("max_concurrent_connections value invalid")
 	}
 
-	if this.MaxDownloadRate != "" {
-		val, err := utils.ParseDataRate(this.MaxDownloadRate)
+	if this.ActualRateRx != "" {
+		val, err := utils.ParseDataRate(this.ActualRateRx)
 		if err != nil {
-			return opts, fmt.Errorf("error parsing max_download_rate: %v", err)
+			return opts, fmt.Errorf("error parsing actual_rate_rx: %v", err)
 		}
-		opts.MaxRxRate = val
+		opts.ActualRateRx = val
 	}
 
-	if this.MaxUploadRate != "" {
-		val, err := utils.ParseDataRate(this.MaxUploadRate)
+	if this.ActualRateTx != "" {
+		val, err := utils.ParseDataRate(this.ActualRateTx)
 		if err != nil {
-			return opts, fmt.Errorf("error parsing max_upload_rate: %v", err)
+			return opts, fmt.Errorf("error parsing actual_rate_tx: %v", err)
 		}
-		opts.MaxTxRate = val
+		opts.ActualRateTx = val
+	}
+
+	if this.MaximumRateRx != "" {
+		val, err := utils.ParseDataRate(this.MaximumRateRx)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing maximum_rate_rx: %v", err)
+		}
+		opts.MaximumRateRx = val
+	}
+
+	if this.MaximumRateTx != "" {
+		val, err := utils.ParseDataRate(this.MaximumRateTx)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing maximum_rate_tx: %v", err)
+		}
+		opts.MaximumRateTx = val
+	}
+
+	if this.MinimumRateRx != "" {
+		val, err := utils.ParseDataRate(this.MinimumRateRx)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing minimum_rate_rx: %v", err)
+		}
+		opts.MinimumRateRx = val
+	}
+
+	if this.MinimumRateTx != "" {
+		val, err := utils.ParseDataRate(this.MinimumRateTx)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing minimum_rate_tx: %v", err)
+		}
+		opts.MinimumRateTx = val
 	}
 
 	return opts, nil
@@ -198,12 +246,12 @@ func (this SessionConfig) Unwrap() SessionOptions {
 		opts.MaxConcurrentConnections = 256
 	}
 
-	if opts.MaxRxRate == 0 {
-		opts.MaxRxRate = 50_000_000
+	if opts.ActualRateRx == 0 {
+		opts.ActualRateRx = 50_000_000
 	}
 
-	if opts.MaxTxRate == 0 {
-		opts.MaxTxRate = 25_000_000
+	if opts.ActualRateTx == 0 {
+		opts.ActualRateTx = 25_000_000
 	}
 
 	return opts

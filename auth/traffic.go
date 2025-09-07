@@ -31,8 +31,14 @@ type TrafficCtl struct {
 	doneCh chan struct{}
 	done   atomic.Bool
 
-	BandwidthRx int
-	BandwidthTx int
+	ActualRateRx int
+	ActualRateTx int
+
+	MaximumRateRx int
+	MaximumRateTx int
+
+	MinimumRateRx int
+	MinimumRateTx int
 
 	AccountingRx atomic.Int64
 	AccountingTx atomic.Int64
@@ -49,33 +55,48 @@ func (this *TrafficCtl) refreshRoutine() {
 
 		for key, entry := range this.pool {
 
-			this.AccountingRx.Add(entry.deltaRx.Swap(0))
-			this.AccountingTx.Add(entry.deltaTx.Swap(0))
+			//	load transferred data volume
+			deltaRx := entry.deltaRx.Swap(0)
+			deltaTx := entry.deltaTx.Swap(0)
 
+			this.AccountingRx.Add(deltaRx)
+			this.AccountingTx.Add(deltaTx)
+
+			//	remove connections that have been closed
 			if entry.done {
 				delete(this.pool, key)
 				continue
 			}
 
-			entriesRx = append(entriesRx, TrafficState{ID: entry.id, Volume: int(entry.deltaRx.Load()), Bandwidth: entry.bandwidthRx})
-			entriesTx = append(entriesTx, TrafficState{ID: entry.id, Volume: int(entry.deltaTx.Load()), Bandwidth: entry.bandwidthTx})
+			entriesRx = append(entriesRx, TrafficState{ID: entry.id, Volume: int(deltaRx), Bandwidth: entry.rateRx})
+			entriesTx = append(entriesTx, TrafficState{ID: entry.id, Volume: int(deltaTx), Bandwidth: entry.rateTx})
 		}
 
-		RecalculateBandwidthLax(entriesRx, this.BandwidthRx)
-		RecalculateBandwidthLax(entriesTx, this.BandwidthTx)
+		RecalculateBandwidthLax(entriesRx, this.ActualRateRx)
+		RecalculateBandwidthLax(entriesTx, this.ActualRateTx)
 
 		for idx, itemRx := range entriesRx {
 
 			itemTx := entriesTx[idx]
 
+			//	this should never fire
 			if itemRx.ID != itemTx.ID {
 				panic(errors.New("logic error: RX and TX id mismatch"))
 			}
 
 			entry := this.pool[itemRx.ID]
 
-			entry.bandwidthRx = itemRx.Bandwidth
-			entry.bandwidthTx = itemTx.Bandwidth
+			//	apply recalculated bandwidth
+			entry.rateRx = itemRx.Bandwidth
+			entry.rateRx = itemTx.Bandwidth
+
+			//	apply minimal bandwidth
+			entry.minRateRx = this.MinimumRateRx
+			entry.minRateTx = this.MinimumRateTx
+
+			//	apply maximal bandwidth
+			entry.maxRateRx = this.MaximumRateRx
+			entry.maxRateTx = this.MaximumRateTx
 		}
 	}
 
@@ -144,9 +165,13 @@ func (this *TrafficCtl) Next() *ConnCtl {
 	}
 
 	next := &ConnCtl{
-		id:          getID(),
-		bandwidthRx: getBandwidth(this.BandwidthRx),
-		bandwidthTx: getBandwidth(this.BandwidthTx),
+		id:        getID(),
+		rateRx:    getBandwidth(this.ActualRateRx),
+		rateTx:    getBandwidth(this.ActualRateTx),
+		maxRateRx: this.MaximumRateRx,
+		maxRateTx: this.MaximumRateTx,
+		minRateRx: this.MinimumRateRx,
+		minRateTx: this.MinimumRateTx,
 	}
 
 	this.pool[next.id] = next
@@ -160,8 +185,14 @@ type ConnCtl struct {
 	deltaRx atomic.Int64
 	deltaTx atomic.Int64
 
-	bandwidthRx int
-	bandwidthTx int
+	rateRx int
+	rateTx int
+
+	maxRateRx int
+	maxRateTx int
+
+	minRateRx int
+	minRateTx int
 }
 
 func (this *ConnCtl) Close() {
@@ -169,11 +200,19 @@ func (this *ConnCtl) Close() {
 }
 
 func (this *ConnCtl) BandwidthRx() utils.Bandwidther {
-	return connBandwidthCtl{val: &this.bandwidthRx}
+	return connBandwidthCtl{
+		rate:    &this.rateRx,
+		maxRate: &this.maxRateRx,
+		minRate: &this.minRateRx,
+	}
 }
 
 func (this *ConnCtl) BandwidthTx() utils.Bandwidther {
-	return connBandwidthCtl{val: &this.bandwidthTx}
+	return connBandwidthCtl{
+		rate:    &this.rateTx,
+		maxRate: &this.maxRateTx,
+		minRate: &this.minRateTx,
+	}
 }
 
 func (this *ConnCtl) AccounterRx() utils.Accounter {
@@ -185,12 +224,27 @@ func (this *ConnCtl) AccounterTx() utils.Accounter {
 }
 
 type connBandwidthCtl struct {
-	val *int
+	rate    *int
+	maxRate *int
+	minRate *int
 }
 
 func (this connBandwidthCtl) Bandwidth() (int, bool) {
-	val := *this.val
-	return int(val), val > 0
+
+	if val := *this.rate; val > 0 {
+
+		if minVal := *this.minRate; minVal > 0 && val < minVal {
+			val = minVal
+		}
+
+		if maxVal := *this.maxRate; maxVal > 0 && val > maxVal {
+			val = maxVal
+		}
+
+		return val, true
+	}
+
+	return 0, false
 }
 
 type connAccounter struct {

@@ -4,6 +4,13 @@ auth:
     acct_addr: localhost:1813
     listen_dac: localhost:3799
     secret: secret
+#  session:
+#    actual_rate_rx: 100K
+#    actual_rate_tx: 100K
+#    maximum_rate_rx: 1M
+#    maximum_rate_tx: 1M
+#    minimum_rate_rx: 100K
+#    minimum_rate_tx: 100K
 services:
   http:
     port_range: 8810-8819
