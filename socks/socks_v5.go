@@ -142,23 +142,9 @@ func (this *socksV5Proxy) HandleConnection(ctx context.Context, conn net.Conn) {
 		_ = writeReply(v5_ErrTtlExpired)
 	}
 
-	if !sess.CanAcceptConnection() {
-		slog.Debug("SOCKSv5: Session: Too many connections",
-			slog.String("nas_addr", nasIP.String()),
-			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()),
-			slog.String("sid", sess.ID.String()),
-			slog.String("client_id", sess.ClientID))
-		_ = writeReply(v5_ErrConnRefused)
-		return
-	}
-
 	switch cmd {
-
 	case v5_CmdConnect:
-
 		this.connect(conn, sess)
-
 	default:
 		_ = writeReply(v5_ErrCmdNotSupported)
 	}
@@ -208,6 +194,21 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		return
 	}
 
+	tctl, err := sess.TrafficCtl.Next()
+	if err != nil {
+		slog.Debug("SOCKSv5: Session: Connection refused",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID),
+			slog.String("err", err.Error()))
+		_ = writeReply(v5_ErrConnRefused, dstAddr)
+		return
+	}
+
+	defer tctl.Close()
+
 	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
 	dstConn, err := dialer.DialContext(sess.Context(), "tcp", string(dstAddr))
 	if err != nil {
@@ -248,9 +249,6 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		slog.String("sid", sess.ID.String()),
 		slog.String("username", *sess.UserName),
 		slog.String("host", string(dstAddr)))
-
-	tctl := sess.TrafficCtl.Next()
-	defer tctl.Close()
 
 	piper := utils.ConnectionPiper{
 		Remote: dstConn,

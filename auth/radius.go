@@ -547,9 +547,9 @@ func (this *radiusController) applySessionOpts(sess *Session, packet *radius.Pac
 	}
 
 	if val := rfc2865.PortLimit_Get(packet); val > 0 {
-		sess.ConnectionLimit = int(val)
+		sess.TrafficCtl.ConnectionLimit = int(val)
 	} else {
-		sess.ConnectionLimit = this.defaultSessOpts.ConnectionLimit
+		sess.TrafficCtl.ConnectionLimit = this.defaultSessOpts.ConnectionLimit
 	}
 }
 

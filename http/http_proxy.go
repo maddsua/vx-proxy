@@ -88,17 +88,6 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !sess.CanAcceptConnection() {
-		slog.Debug("HTTP proxy: Session: Too many connections",
-			slog.String("nas_addr", nasIP.String()),
-			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()),
-			slog.String("sid", sess.ID.String()),
-			slog.String("client_id", sess.ClientID))
-		wrt.WriteHeader(http.StatusServiceUnavailable)
-		return
-	}
-
 	sess.Wg.Add(1)
 	defer sess.Wg.Done()
 
@@ -218,6 +207,20 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return rw.Writer.Flush()
 	}
 
+	tctl, err := sess.TrafficCtl.Next()
+	if err != nil {
+		slog.Debug("HTTP tunnel: Session: Connection refused",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		flushResponse(http.StatusServiceUnavailable, "", nil)
+		return
+	}
+
+	defer tctl.Close()
+
 	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
 	dstConn, err := dialer.DialContext(sess.Context(), "tcp", hostAddr)
 	if err != nil {
@@ -258,9 +261,6 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		slog.String("client_id", sess.ID.String()),
 		slog.String("sid", sess.ID.String()),
 		slog.String("host", hostAddr))
-
-	tctl := sess.TrafficCtl.Next()
-	defer tctl.Close()
 
 	if buffered := rw.Reader.Buffered(); buffered > 0 {
 

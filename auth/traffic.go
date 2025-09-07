@@ -10,6 +10,8 @@ import (
 	"github.com/maddsua/vx-proxy/utils"
 )
 
+var errTooManyConnections = errors.New("too many connections")
+
 func NewTrafficCtl() *TrafficCtl {
 
 	this := &TrafficCtl{
@@ -30,6 +32,8 @@ type TrafficCtl struct {
 	ticker *time.Ticker
 	doneCh chan struct{}
 	done   atomic.Bool
+
+	ConnectionLimit int
 
 	ActualRateRx int
 	ActualRateTx int
@@ -128,14 +132,18 @@ func (this *TrafficCtl) Connections() int {
 	return len(this.pool)
 }
 
-func (this *TrafficCtl) Next() *ConnCtl {
+func (this *TrafficCtl) Next() (*ConnCtl, error) {
 
 	if this.pool == nil || this.done.Load() {
-		return nil
+		return nil, errors.New("controller closed")
 	}
 
 	this.mtx.Lock()
 	defer this.mtx.Unlock()
+
+	if this.ConnectionLimit > 0 && len(this.pool) >= this.ConnectionLimit {
+		return nil, errTooManyConnections
+	}
 
 	var getID = func() int {
 
@@ -175,7 +183,7 @@ func (this *TrafficCtl) Next() *ConnCtl {
 	}
 
 	this.pool[next.id] = next
-	return next
+	return next, nil
 }
 
 type ConnCtl struct {

@@ -24,9 +24,6 @@ type Session struct {
 	Timeout     time.Duration
 	IdleTimeout time.Duration
 
-	//	Sets the limit of concurrent connection
-	ConnectionLimit int
-
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
 
@@ -95,10 +92,6 @@ func (this *Session) Expired() bool {
 
 	deadline, ok := this.ctx.Deadline()
 	return ok && deadline.Before(time.Now())
-}
-
-func (this *Session) CanAcceptConnection() bool {
-	return this.ConnectionLimit <= 0 || this.TrafficCtl.Connections() < this.ConnectionLimit
 }
 
 func (this *Session) Close() {
