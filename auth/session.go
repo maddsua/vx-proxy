@@ -151,12 +151,10 @@ type SessionConfig struct {
 
 func (this SessionConfig) Parse() (SessionOptions, error) {
 
-	opts := SessionOptions{
-		MaxConcurrentConnections: this.MaxConcurrentConnections,
-	}
+	opts := SessionOptions{}
 
-	if this.Timeout != "" {
-		val, err := time.ParseDuration(this.Timeout)
+	if attr := this.Timeout; attr != "" {
+		val, err := time.ParseDuration(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing timeout: %v", err)
 		} else if val < time.Second {
@@ -165,8 +163,8 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		opts.Timeout = val
 	}
 
-	if this.IdleTimeout != "" {
-		val, err := time.ParseDuration(this.IdleTimeout)
+	if attr := this.IdleTimeout; attr != "" {
+		val, err := time.ParseDuration(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing idle_timeout: %v", err)
 		} else if val < time.Second {
@@ -175,52 +173,52 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		opts.IdleTimeout = val
 	}
 
-	if this.MaxConcurrentConnections < 0 {
-		return opts, fmt.Errorf("max_concurrent_connections value invalid")
+	if attr := this.MaxConcurrentConnections; attr > 0 {
+		opts.MaxConcurrentConnections = attr
 	}
 
-	if this.ActualRateRx != "" {
-		val, err := utils.ParseDataRate(this.ActualRateRx)
+	if attr := this.ActualRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing actual_rate_rx: %v", err)
 		}
 		opts.ActualRateRx = val
 	}
 
-	if this.ActualRateTx != "" {
-		val, err := utils.ParseDataRate(this.ActualRateTx)
+	if attr := this.ActualRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing actual_rate_tx: %v", err)
 		}
 		opts.ActualRateTx = val
 	}
 
-	if this.MaximumRateRx != "" {
-		val, err := utils.ParseDataRate(this.MaximumRateRx)
+	if attr := this.MaximumRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing maximum_rate_rx: %v", err)
 		}
 		opts.MaximumRateRx = val
 	}
 
-	if this.MaximumRateTx != "" {
-		val, err := utils.ParseDataRate(this.MaximumRateTx)
+	if attr := this.MaximumRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing maximum_rate_tx: %v", err)
 		}
 		opts.MaximumRateTx = val
 	}
 
-	if this.MinimumRateRx != "" {
-		val, err := utils.ParseDataRate(this.MinimumRateRx)
+	if attr := this.MinimumRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing minimum_rate_rx: %v", err)
 		}
 		opts.MinimumRateRx = val
 	}
 
-	if this.MinimumRateTx != "" {
-		val, err := utils.ParseDataRate(this.MinimumRateTx)
+	if attr := this.MinimumRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing minimum_rate_tx: %v", err)
 		}
