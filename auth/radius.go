@@ -163,9 +163,7 @@ func (this *radiusController) Shutdown(ctx context.Context) error {
 
 		defer wg.Done()
 
-		sess.Terminate()
-		sess.Wg.Wait()
-		sess.closeDependencies()
+		sess.Close()
 
 		if err := this.acctStopSession(ctx, sess); err != nil {
 			slog.Error("Failed to write terminated session accounting data",
@@ -227,8 +225,7 @@ func (this *radiusController) asyncRefresh() {
 				slog.Int("acct_rx", int(sess.TrafficCtl.AccountingRx.Load())),
 				slog.Int("acct_tx", int(sess.TrafficCtl.AccountingTx.Load())))
 
-			sess.Wg.Wait()
-			sess.closeDependencies()
+			sess.Close()
 
 			if err := this.acctStopSession(ctx, sess); err != nil {
 				slog.Error("RADIUS: Error stopping session accounting",
@@ -247,9 +244,7 @@ func (this *radiusController) asyncRefresh() {
 				slog.Int("acct_rx", int(sess.TrafficCtl.AccountingRx.Load())),
 				slog.Int("acct_tx", int(sess.TrafficCtl.AccountingTx.Load())))
 
-			sess.Terminate()
-			sess.Wg.Wait()
-			sess.closeDependencies()
+			sess.Close()
 
 			if err := this.acctStopSession(ctx, sess); err != nil {
 				slog.Error("RADIUS: Error stopping session accounting",
@@ -653,7 +648,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 		return
 	}
 
-	sess.Terminate()
+	sess.cancelCtx()
 
 	slog.Info("RADIUS DAC: DM OK",
 		slog.String("sid", sess.ID.String()),

@@ -14,7 +14,7 @@ func NewTrafficCtl() *TrafficCtl {
 
 	this := &TrafficCtl{
 		pool:   map[int]*ConnCtl{},
-		done:   make(chan struct{}),
+		doneCh: make(chan struct{}),
 		ticker: time.NewTicker(time.Second),
 	}
 
@@ -28,7 +28,8 @@ type TrafficCtl struct {
 	pool   map[int]*ConnCtl
 	mtx    sync.Mutex
 	ticker *time.Ticker
-	done   chan struct{}
+	doneCh chan struct{}
+	done   atomic.Bool
 
 	BandwidthRx int
 	BandwidthTx int
@@ -82,17 +83,23 @@ func (this *TrafficCtl) refreshRoutine() {
 		select {
 		case <-this.ticker.C:
 			doRefresh()
-		case <-this.done:
-			this.ticker.Stop()
-			this.done = nil
+		case <-this.doneCh:
 			return
 		}
 	}
 }
 
 func (this *TrafficCtl) Close() {
-	if this.done != nil {
-		this.done <- struct{}{}
+
+	if !this.done.CompareAndSwap(false, true) {
+		return
+	}
+
+	this.ticker.Stop()
+
+	if this.doneCh != nil {
+		this.doneCh <- struct{}{}
+		close(this.doneCh)
 	}
 }
 
@@ -102,8 +109,8 @@ func (this *TrafficCtl) Connections() int {
 
 func (this *TrafficCtl) Next() *ConnCtl {
 
-	if this.pool == nil {
-		panic("not initialized")
+	if this.pool == nil || this.done.Load() {
+		return nil
 	}
 
 	this.mtx.Lock()

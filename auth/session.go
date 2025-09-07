@@ -93,23 +93,23 @@ func (this *Session) CanAcceptConnection() bool {
 	return this.MaxConcurrentConnections <= 0 || this.TrafficCtl.Connections() < this.MaxConcurrentConnections
 }
 
-func (this *Session) Terminate() {
+func (this *Session) Close() {
 
-	if this.cancelCtx != nil {
+	if this.ctx.Err() == nil {
 		this.cancelCtx()
 	}
 
-	this.closeDependencies()
-}
-
-func (this *Session) closeDependencies() {
-
 	this.TrafficCtl.Close()
 
+	this.Wg.Wait()
+
 	if this.FramedHttpClient != nil {
-		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
-			tr.CloseIdleConnections()
+
+		if transport, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
 		}
+
+		this.FramedHttpClient = nil
 	}
 }
 

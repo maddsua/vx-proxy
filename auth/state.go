@@ -61,7 +61,7 @@ func (this *sessionState) Store(key string, val expirer) {
 
 	if oldVal, has := this.entries[key]; has {
 		if sess, ok := oldVal.(*Session); ok {
-			sess.Terminate()
+			sess.cancelCtx()
 			this.entries[fmt.Sprintf("re_%d_%s", time.Now().UnixNano(), key)] = sess
 		}
 	}
