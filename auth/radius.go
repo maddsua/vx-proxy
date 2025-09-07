@@ -450,8 +450,7 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		UserName: &auth.Username,
 		ClientID: "<nil>",
 
-		FramedIP:                 auth.NasAddr,
-		MaxConcurrentConnections: this.defaultSessOpts.MaxConcurrentConnections,
+		FramedIP: auth.NasAddr,
 
 		TrafficCtl: NewTrafficCtl(),
 
@@ -545,6 +544,12 @@ func (this *radiusController) applySessionOpts(sess *Session, packet *radius.Pac
 		sess.TrafficCtl.MinimumRateTx = int(val)
 	} else {
 		sess.TrafficCtl.MinimumRateTx = this.defaultSessOpts.MinimumRateTx
+	}
+
+	if val := rfc2865.PortLimit_Get(packet); val > 0 {
+		sess.MaxConcurrentConnections = int(val)
+	} else {
+		sess.MaxConcurrentConnections = this.defaultSessOpts.MaxConcurrentConnections
 	}
 }
 
