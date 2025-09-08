@@ -239,16 +239,24 @@ type connBandwidthCtl struct {
 
 func (this connBandwidthCtl) Bandwidth() (int, bool) {
 
+	//	Normal flow when base rate is recalculated and min/max limits can also be applied
 	if val := *this.rate; val > 0 {
 
+		//	apply minimal connection speed if set
 		if minVal := *this.minRate; minVal > 0 && val < minVal {
 			val = minVal
 		}
 
+		//	apply maximal connection speed if set
 		if maxVal := *this.maxRate; maxVal > 0 && val > maxVal {
 			val = maxVal
 		}
 
+		return val, true
+	}
+
+	//	This sets connection speed from the value of MaximumDataRate or equivalent
+	if val := *this.maxRate; val > 0 {
 		return val, true
 	}
 
