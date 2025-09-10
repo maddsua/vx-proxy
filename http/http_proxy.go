@@ -88,19 +88,8 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !sess.CanAcceptConnection() {
-		slog.Debug("HTTP proxy: Session: Too many connections",
-			slog.String("nas_addr", nasIP.String()),
-			slog.Int("nas_port", nasPort),
-			slog.String("client_ip", clientIP.String()),
-			slog.String("sid", sess.ID.String()),
-			slog.String("client_id", sess.ClientID))
-		wrt.WriteHeader(http.StatusServiceUnavailable)
-		return
-	}
-
-	sess.TrackConn()
-	defer sess.ConnDone()
+	sess.Wg.Add(1)
+	defer sess.Wg.Done()
 
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
@@ -218,6 +207,20 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return rw.Writer.Flush()
 	}
 
+	tctl, err := sess.Traffic.Next()
+	if err != nil {
+		slog.Debug("HTTP tunnel: Session: Connection refused",
+			slog.String("nas_addr", nasIP.String()),
+			slog.Int("nas_port", nasPort),
+			slog.String("client_ip", clientIP.String()),
+			slog.String("sid", sess.ID.String()),
+			slog.String("client_id", sess.ClientID))
+		flushResponse(http.StatusServiceUnavailable, "", nil)
+		return
+	}
+
+	defer tctl.Close()
+
 	dialer := utils.NewTcpDialer(sess.FramedIP, this.Dns)
 	dstConn, err := dialer.DialContext(sess.Context(), "tcp", hostAddr)
 	if err != nil {
@@ -274,7 +277,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 			return
 		}
 
-		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), sess.BandwidthRx(), &sess.AcctRxBytes); err != nil {
+		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), tctl.BandwidthRx(), tctl.AccounterRx()); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
 				slog.String("nas_addr", nasIP.String()),
 				slog.Int("nas_port", nasPort),
@@ -303,16 +306,15 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return
 	}
 
-	//	let the data flow!
 	piper := utils.ConnectionPiper{
 		Remote: dstConn,
 		Client: conn,
 
-		RxAcct: &sess.AcctRxBytes,
-		TxAcct: &sess.AcctTxBytes,
+		RxAcct: tctl.AccounterRx(),
+		TxAcct: tctl.AccounterTx(),
 
-		RxMaxRate: sess.BandwidthRx(),
-		TxMaxRate: sess.BandwidthTx(),
+		RxMaxRate: tctl.BandwidthRx(),
+		TxMaxRate: tctl.BandwidthTx(),
 	}
 
 	if err := piper.Pipe(sess.Context()); err != nil {

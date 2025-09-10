@@ -96,9 +96,9 @@ func NewRadiusController(protoCfg RadiusConfig, sessOpts SessionOptions) (*radiu
 		ctx:       ctx,
 		cancelCtx: cancel,
 
-		sessOpts:      sessOpts,
-		sessState:     sessionState{entries: map[string]expirer{}},
-		refreshTicker: time.NewTicker(10 * time.Second),
+		defaultSessOpts: sessOpts,
+		sessState:       sessionState{entries: map[string]expirer{}},
+		refreshTicker:   time.NewTicker(10 * time.Second),
 	}
 
 	this.dacServer = &radius.PacketServer{
@@ -127,9 +127,9 @@ type radiusController struct {
 	acctAddr string
 	secret   []byte
 
-	sessState     sessionState
-	sessOpts      SessionOptions
-	refreshTicker *time.Ticker
+	sessState       sessionState
+	defaultSessOpts SessionOptions
+	refreshTicker   *time.Ticker
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
@@ -163,9 +163,7 @@ func (this *radiusController) Shutdown(ctx context.Context) error {
 
 		defer wg.Done()
 
-		sess.Terminate()
-		sess.WaitDone()
-		sess.closeDependencies()
+		sess.Close()
 
 		if err := this.acctStopSession(ctx, sess); err != nil {
 			slog.Error("Failed to write terminated session accounting data",
@@ -224,11 +222,10 @@ func (this *radiusController) asyncRefresh() {
 			slog.Debug("RADIUS: Session terminated",
 				slog.String("sid", sess.ID.String()),
 				slog.String("reason", "ttl"),
-				slog.Int("acct_rx", int(sess.AcctRxBytes.Load())),
-				slog.Int("acct_tx", int(sess.AcctTxBytes.Load())))
+				slog.Int("acct_rx", int(sess.Traffic.AcctRx.Load())),
+				slog.Int("acct_tx", int(sess.Traffic.AcctTx.Load())))
 
-			sess.WaitDone()
-			sess.closeDependencies()
+			sess.Close()
 
 			if err := this.acctStopSession(ctx, sess); err != nil {
 				slog.Error("RADIUS: Error stopping session accounting",
@@ -244,12 +241,10 @@ func (this *radiusController) asyncRefresh() {
 			slog.Debug("RADIUS: Session terminated",
 				slog.String("sid", sess.ID.String()),
 				slog.String("reason", "idle"),
-				slog.Int("acct_rx", int(sess.AcctRxBytes.Load())),
-				slog.Int("acct_tx", int(sess.AcctTxBytes.Load())))
+				slog.Int("acct_rx", int(sess.Traffic.AcctRx.Load())),
+				slog.Int("acct_tx", int(sess.Traffic.AcctTx.Load())))
 
-			sess.Terminate()
-			sess.WaitDone()
-			sess.closeDependencies()
+			sess.Close()
 
 			if err := this.acctStopSession(ctx, sess); err != nil {
 				slog.Error("RADIUS: Error stopping session accounting",
@@ -262,17 +257,20 @@ func (this *radiusController) asyncRefresh() {
 
 		case time.Since(sess.lastUpdated) > updateInterval:
 
-			slog.Debug("RADIUS: Session accounting update",
-				slog.String("sid", sess.ID.String()),
-				slog.Int("rx", int(sess.AcctRxBytes.Load())),
-				slog.Int("tx", int(sess.AcctTxBytes.Load())))
+			if sess.Traffic.AcctRx.Load() > 0 || sess.Traffic.AcctTx.Load() > 0 {
 
-			if err := this.acctUpdateSession(ctx, sess); err != nil {
-				slog.Error("RADIUS: Failed to update session accounting",
-					slog.String("err", err.Error()),
-					slog.String("sid", sess.ID.String()))
-			} else {
-				sess.lastUpdated = time.Now()
+				slog.Debug("RADIUS: Session accounting update",
+					slog.String("sid", sess.ID.String()),
+					slog.Int("rx", int(sess.Traffic.AcctRx.Load())),
+					slog.Int("tx", int(sess.Traffic.AcctTx.Load())))
+
+				if err := this.acctUpdateSession(ctx, sess); err != nil {
+					slog.Error("RADIUS: Failed to update session accounting",
+						slog.String("sid", sess.ID.String()),
+						slog.String("err", err.Error()))
+				} else {
+					sess.lastUpdated = time.Now()
+				}
 			}
 		}
 	}
@@ -379,8 +377,12 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
 		slog.String("user", sess.ClientID),
-		slog.Int("max_dl", sess.MaxRxRate),
-		slog.Int("max_up", sess.MaxTxRate))
+		slog.Int("dl", sess.Traffic.ActualRateRx),
+		slog.Int("up", sess.Traffic.ActualRateTx),
+		slog.Int("max_dl", sess.Traffic.MaximumRateRx),
+		slog.Int("max_up", sess.Traffic.MaximumRateTx),
+		slog.Int("min_dl", sess.Traffic.MinimumRateRx),
+		slog.Int("min_up", sess.Traffic.MinimumRateTx))
 
 	this.sessState.Store(sessKey, sess)
 
@@ -447,14 +449,16 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	}
 
 	sess := Session{
-		SessionOptions: this.sessOpts,
+		ID:       sessUuid,
+		UserName: &auth.Username,
+		ClientID: "<nil>",
 
-		ID:           sessUuid,
-		UserName:     &auth.Username,
-		ClientID:     "<nil>",
+		FramedIP: auth.NasAddr,
+
+		Traffic: NewTrafficCtl(),
+
 		lastActivity: time.Now(),
 		lastUpdated:  time.Now(),
-		FramedIP:     auth.NasAddr,
 	}
 
 	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
@@ -486,25 +490,70 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 		}
 	}
 
-	if val := rfc2865.SessionTimeout_Get(resp); val > 0 {
-		sess.Timeout = time.Duration(val) * time.Second
-	}
-
-	if val := rfc2865.IdleTimeout_Get(resp); val > 0 {
-		sess.IdleTimeout = time.Duration(val) * time.Second
-	}
-
-	if val := rfc4679.MaximumDataRateDownstream_Get(resp); val > 0 {
-		sess.MaxRxRate = int(val)
-	}
-
-	if val := rfc4679.MaximumDataRateUpstream_Get(resp); val > 0 {
-		sess.MaxTxRate = int(val)
-	}
+	this.applySessionOpts(&sess, resp)
 
 	sess.ctx, sess.cancelCtx = context.WithTimeout(context.Background(), sess.Timeout)
 
 	return &sess, nil
+}
+
+func (this *radiusController) applySessionOpts(sess *Session, packet *radius.Packet) {
+
+	if sess.ctx == nil {
+		if val := rfc2865.SessionTimeout_Get(packet); val > 0 {
+			sess.Timeout = time.Duration(val) * time.Second
+		} else {
+			sess.Timeout = this.defaultSessOpts.Timeout
+		}
+	}
+
+	if val := rfc2865.IdleTimeout_Get(packet); val > 0 {
+		sess.IdleTimeout = time.Duration(val) * time.Second
+	} else {
+		sess.IdleTimeout = this.defaultSessOpts.IdleTimeout
+	}
+
+	if val := rfc4679.ActualDataRateDownstream_Get(packet); val > 0 {
+		sess.Traffic.ActualRateRx = int(val)
+	} else {
+		sess.Traffic.ActualRateRx = this.defaultSessOpts.ActualRateRx
+	}
+
+	if val := rfc4679.ActualDataRateUpstream_Get(packet); val > 0 {
+		sess.Traffic.ActualRateTx = int(val)
+	} else {
+		sess.Traffic.ActualRateTx = this.defaultSessOpts.ActualRateTx
+	}
+
+	if val := rfc4679.MaximumDataRateDownstream_Get(packet); val > 0 {
+		sess.Traffic.MaximumRateRx = int(val)
+	} else {
+		sess.Traffic.MaximumRateRx = this.defaultSessOpts.MaximumRateRx
+	}
+
+	if val := rfc4679.MaximumDataRateUpstream_Get(packet); val > 0 {
+		sess.Traffic.MaximumRateTx = int(val)
+	} else {
+		sess.Traffic.MaximumRateTx = this.defaultSessOpts.MaximumRateTx
+	}
+
+	if val := rfc4679.MinimumDataRateDownstream_Get(packet); val > 0 {
+		sess.Traffic.MinimumRateRx = int(val)
+	} else {
+		sess.Traffic.MinimumRateRx = this.defaultSessOpts.MinimumRateRx
+	}
+
+	if val := rfc4679.MinimumDataRateUpstream_Get(packet); val > 0 {
+		sess.Traffic.MinimumRateTx = int(val)
+	} else {
+		sess.Traffic.MinimumRateTx = this.defaultSessOpts.MinimumRateTx
+	}
+
+	if val := rfc2865.PortLimit_Get(packet); val > 0 {
+		sess.Traffic.ConnectionLimit = int(val)
+	} else {
+		sess.Traffic.ConnectionLimit = this.defaultSessOpts.ConnectionLimit
+	}
 }
 
 func (this *radiusController) acctStartSession(ctx context.Context, sess *Session) error {
@@ -533,11 +582,6 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 
 	defer this.errorRate.Add()
 
-	volRx, volTx := sess.AcctRxBytes.Load(), sess.AcctTxBytes.Load()
-	if volRx == 0 && volTx == 0 {
-		return nil
-	}
-
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
@@ -548,11 +592,13 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 		panic(err)
 	}
 
-	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
+	rxVolume := sess.Traffic.AcctRx.Load()
+	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(rxVolume)); err != nil {
 		panic(err)
 	}
 
-	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
+	txVolume := sess.Traffic.AcctTx.Load()
+	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(txVolume)); err != nil {
 		panic(err)
 	}
 
@@ -561,8 +607,8 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 		return err
 	}
 
-	sess.AcctRxBytes.Add(-volRx)
-	sess.AcctTxBytes.Add(-volTx)
+	sess.Traffic.AcctRx.Add(-rxVolume)
+	sess.Traffic.AcctTx.Add(-txVolume)
 
 	return nil
 }
@@ -581,16 +627,12 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 		panic(err)
 	}
 
-	if vol := sess.AcctRxBytes.Load(); vol > 0 {
-		if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(vol)); err != nil {
-			panic(err)
-		}
+	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(sess.Traffic.AcctRx.Load())); err != nil {
+		panic(err)
 	}
 
-	if vol := sess.AcctTxBytes.Load(); vol > 0 {
-		if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(vol)); err != nil {
-			panic(err)
-		}
+	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(sess.Traffic.AcctTx.Load())); err != nil {
+		panic(err)
 	}
 
 	if _, err := this.exchangeAcct(ctx, req); err != nil {
@@ -598,8 +640,8 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 		return err
 	}
 
-	sess.AcctRxBytes.Store(0)
-	sess.AcctTxBytes.Store(0)
+	sess.Traffic.AcctRx.Store(0)
+	sess.Traffic.AcctRx.Store(0)
 
 	return nil
 }
@@ -644,7 +686,7 @@ func (this *radiusController) dacHandleDisconnect(wrt radius.ResponseWriter, req
 		return
 	}
 
-	sess.Terminate()
+	sess.cancelCtx()
 
 	slog.Info("RADIUS DAC: DM OK",
 		slog.String("sid", sess.ID.String()),
@@ -677,23 +719,17 @@ func (this *radiusController) dacHandleCOA(wrt radius.ResponseWriter, req *radiu
 		return
 	}
 
-	if idleTimeout := rfc2865.IdleTimeout_Get(req.Packet); idleTimeout > 0 {
-		sess.IdleTimeout = time.Duration(idleTimeout) * time.Second
-	}
-
-	if val := rfc4679.MaximumDataRateDownstream_Get(req.Packet); val > 0 {
-		sess.MaxRxRate = int(val)
-	}
-
-	if val := rfc4679.MaximumDataRateUpstream_Get(req.Packet); val > 0 {
-		sess.MaxTxRate = int(val)
-	}
+	this.applySessionOpts(sess, req.Packet)
 
 	slog.Info("RADIUS DAC: CoA OK",
 		slog.String("sid", sess.ID.String()),
-		slog.Int("max_dl", sess.MaxRxRate),
-		slog.Int("max_up", sess.MaxTxRate),
 		slog.Duration("idle_t", sess.IdleTimeout),
+		slog.Int("dl", sess.Traffic.ActualRateRx),
+		slog.Int("up", sess.Traffic.ActualRateTx),
+		slog.Int("max_dl", sess.Traffic.MaximumRateRx),
+		slog.Int("max_up", sess.Traffic.MaximumRateTx),
+		slog.Int("min_dl", sess.Traffic.MinimumRateRx),
+		slog.Int("min_up", sess.Traffic.MinimumRateTx),
 		slog.String("dac_addr", req.RemoteAddr.String()))
 
 	wrt.Write(req.Response(radius.CodeCoAACK))

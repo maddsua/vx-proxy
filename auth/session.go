@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,8 +13,6 @@ import (
 )
 
 type Session struct {
-	SessionOptions
-
 	ID       uuid.UUID
 	UserName *string
 	ClientID string
@@ -23,31 +20,42 @@ type Session struct {
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
 
+	//	Session state timeouts
+	Timeout     time.Duration
+	IdleTimeout time.Duration
+
 	//	An http client to be used by the client
 	FramedHttpClient *http.Client
+
+	//	Traffic controller shit
+	Traffic *TrafficCtl
 
 	//	Accounting tracking
 	lastActivity time.Time
 	lastUpdated  time.Time
 
-	//	Data volume accounting
-	AcctRxBytes atomic.Int64
-	AcctTxBytes atomic.Int64
+	//	Session wait group makes sure a session isn't closed until all the operations have been finished
+	Wg sync.WaitGroup
 
-	//	Session controls
+	//	Internal context controls
 	ctx       context.Context
 	cancelCtx context.CancelFunc
-	wg        sync.WaitGroup
-	cc        atomic.Int64
 }
 
 type SessionOptions struct {
-	Timeout                  time.Duration
-	IdleTimeout              time.Duration
-	MaxConcurrentConnections int
-	EnforceTotalBandwidth    bool
-	MaxRxRate                int
-	MaxTxRate                int
+	Timeout     time.Duration
+	IdleTimeout time.Duration
+
+	ConnectionLimit int
+
+	ActualRateRx int
+	ActualRateTx int
+
+	MaximumRateRx int
+	MaximumRateTx int
+
+	MinimumRateRx int
+	MinimumRateTx int
 }
 
 func (this *Session) Context() context.Context {
@@ -65,20 +73,6 @@ func (this *Session) IsCancelled() bool {
 	}
 
 	return this.ctx.Err() != nil
-}
-
-func (this *Session) TrackConn() {
-	this.wg.Add(1)
-	this.cc.Add(1)
-}
-
-func (this *Session) ConnDone() {
-	this.wg.Done()
-	this.cc.Add(-1)
-}
-
-func (this *Session) WaitDone() {
-	this.wg.Wait()
 }
 
 func (this *Session) IsIdle() bool {
@@ -100,80 +94,24 @@ func (this *Session) Expired() bool {
 	return ok && deadline.Before(time.Now())
 }
 
-func (this *Session) CanAcceptConnection() bool {
-	return this.MaxConcurrentConnections <= 0 || this.cc.Load() < int64(this.MaxConcurrentConnections)
-}
+func (this *Session) Close() {
 
-func (this *Session) Terminate() {
-
-	if this.cancelCtx != nil {
+	if this.ctx.Err() == nil {
 		this.cancelCtx()
 	}
 
-	this.closeDependencies()
-}
+	this.Traffic.Close()
 
-func (this *Session) closeDependencies() {
+	this.Wg.Wait()
+
 	if this.FramedHttpClient != nil {
-		if tr, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
-			tr.CloseIdleConnections()
+
+		if transport, ok := this.FramedHttpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
 		}
+
+		this.FramedHttpClient = nil
 	}
-}
-
-func (this *Session) BandwidthRx() bandwidthCtl {
-
-	if this.EnforceTotalBandwidth {
-		return bandwidthCtl{
-			bandwidth: &this.MaxRxRate,
-			peers:     &this.cc,
-		}
-	}
-
-	return bandwidthCtl{bandwidth: &this.MaxRxRate}
-}
-
-func (this *Session) BandwidthTx() bandwidthCtl {
-
-	if this.EnforceTotalBandwidth {
-		return bandwidthCtl{
-			bandwidth: &this.MaxTxRate,
-			peers:     &this.cc,
-		}
-	}
-
-	return bandwidthCtl{bandwidth: &this.MaxTxRate}
-}
-
-// bandwidthCtl keeps pointers to both current one-line (RX or TX) bandwidth limit
-// as well as a pointer to the total number of concurrent connections
-type bandwidthCtl struct {
-	bandwidth *int
-	peers     *atomic.Int64
-}
-
-func (this bandwidthCtl) Bandwidth() (int, bool) {
-
-	if this.bandwidth == nil {
-		return 0, false
-	}
-
-	//	This is here to avoid having it's value changing under the pointer,
-	//	not to prevent pointer dereference bullshit. The pointer itself is never supposed to change
-	bandwidth := *this.bandwidth
-
-	if bandwidth <= 0 {
-		return 0, false
-	} else if this.peers == nil {
-		return bandwidth, true
-	}
-
-	peers := this.peers.Load()
-	if peers <= 1 {
-		return bandwidth, true
-	}
-
-	return bandwidth / int(peers), true
 }
 
 type CredentialsMiss struct {
@@ -189,23 +127,27 @@ func (this *CredentialsMiss) Expired() bool {
 //
 //	These options can be overriden by radius
 type SessionConfig struct {
-	Timeout                  string `yaml:"timeout"`
-	IdleTimeout              string `yaml:"idle_timeout"`
-	MaxConcurrentConnections int    `yaml:"max_concurrent_connections"`
-	EnforceTotalBandwidth    bool   `yaml:"enforce_total_bandwidth"`
-	MaxDownloadRate          string `yaml:"max_download_rate"`
-	MaxUploadRate            string `yaml:"max_upload_rate"`
+	Timeout     string `yaml:"timeout"`
+	IdleTimeout string `yaml:"idle_timeout"`
+
+	ConnectionLimit int `yaml:"connection_limit"`
+
+	ActualRateRx string `yaml:"actual_rate_rx"`
+	ActualRateTx string `yaml:"actual_rate_tx"`
+
+	MaximumRateRx string `yaml:"maximum_rate_rx"`
+	MaximumRateTx string `yaml:"maximum_rate_tx"`
+
+	MinimumRateRx string `yaml:"minimum_rate_rx"`
+	MinimumRateTx string `yaml:"minimum_rate_tx"`
 }
 
 func (this SessionConfig) Parse() (SessionOptions, error) {
 
-	opts := SessionOptions{
-		EnforceTotalBandwidth:    this.EnforceTotalBandwidth,
-		MaxConcurrentConnections: this.MaxConcurrentConnections,
-	}
+	opts := SessionOptions{}
 
-	if this.Timeout != "" {
-		val, err := time.ParseDuration(this.Timeout)
+	if attr := this.Timeout; attr != "" {
+		val, err := time.ParseDuration(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing timeout: %v", err)
 		} else if val < time.Second {
@@ -214,8 +156,8 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		opts.Timeout = val
 	}
 
-	if this.IdleTimeout != "" {
-		val, err := time.ParseDuration(this.IdleTimeout)
+	if attr := this.IdleTimeout; attr != "" {
+		val, err := time.ParseDuration(attr)
 		if err != nil {
 			return opts, fmt.Errorf("error parsing idle_timeout: %v", err)
 		} else if val < time.Second {
@@ -224,24 +166,56 @@ func (this SessionConfig) Parse() (SessionOptions, error) {
 		opts.IdleTimeout = val
 	}
 
-	if this.MaxConcurrentConnections < 0 {
-		return opts, fmt.Errorf("max_concurrent_connections value invalid")
+	if attr := this.ConnectionLimit; attr > 0 {
+		opts.ConnectionLimit = attr
 	}
 
-	if this.MaxDownloadRate != "" {
-		val, err := utils.ParseDataRate(this.MaxDownloadRate)
+	if attr := this.ActualRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
-			return opts, fmt.Errorf("error parsing max_download_rate: %v", err)
+			return opts, fmt.Errorf("error parsing actual_rate_rx: %v", err)
 		}
-		opts.MaxRxRate = val
+		opts.ActualRateRx = val
 	}
 
-	if this.MaxUploadRate != "" {
-		val, err := utils.ParseDataRate(this.MaxUploadRate)
+	if attr := this.ActualRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
 		if err != nil {
-			return opts, fmt.Errorf("error parsing max_upload_rate: %v", err)
+			return opts, fmt.Errorf("error parsing actual_rate_tx: %v", err)
 		}
-		opts.MaxTxRate = val
+		opts.ActualRateTx = val
+	}
+
+	if attr := this.MaximumRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing maximum_rate_rx: %v", err)
+		}
+		opts.MaximumRateRx = val
+	}
+
+	if attr := this.MaximumRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing maximum_rate_tx: %v", err)
+		}
+		opts.MaximumRateTx = val
+	}
+
+	if attr := this.MinimumRateRx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing minimum_rate_rx: %v", err)
+		}
+		opts.MinimumRateRx = val
+	}
+
+	if attr := this.MinimumRateTx; attr != "" {
+		val, err := utils.ParseDataRate(attr)
+		if err != nil {
+			return opts, fmt.Errorf("error parsing minimum_rate_tx: %v", err)
+		}
+		opts.MinimumRateTx = val
 	}
 
 	return opts, nil
@@ -259,16 +233,16 @@ func (this SessionConfig) Unwrap() SessionOptions {
 		opts.IdleTimeout = 5 * time.Minute
 	}
 
-	if opts.MaxConcurrentConnections == 0 {
-		opts.MaxConcurrentConnections = 256
+	if opts.ConnectionLimit == 0 {
+		opts.ConnectionLimit = 256
 	}
 
-	if opts.MaxRxRate == 0 {
-		opts.MaxRxRate = 50_000_000
+	if opts.ActualRateRx == 0 {
+		opts.ActualRateRx = 50_000_000
 	}
 
-	if opts.MaxTxRate == 0 {
-		opts.MaxTxRate = 25_000_000
+	if opts.ActualRateTx == 0 {
+		opts.ActualRateTx = 25_000_000
 	}
 
 	return opts

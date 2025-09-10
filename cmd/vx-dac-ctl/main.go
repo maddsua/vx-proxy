@@ -90,8 +90,8 @@ func sendCoa(host string, secret string, sid string, maxRate int) error {
 
 	rfc2866.AcctSessionID_Set(req, []byte(sid))
 
-	rfc4679.MaximumDataRateDownstream_Set(req, rfc4679.MaximumDataRateDownstream(maxRate))
-	rfc4679.MaximumDataRateUpstream_Set(req, rfc4679.MaximumDataRateUpstream(maxRate))
+	rfc4679.ActualDataRateDownstream_Set(req, rfc4679.ActualDataRateDownstream(maxRate))
+	rfc4679.ActualDataRateUpstream_Set(req, rfc4679.ActualDataRateUpstream(maxRate))
 
 	resp, err := radius.Exchange(context.Background(), req, host)
 	if err != nil {
