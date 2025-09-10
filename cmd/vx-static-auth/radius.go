@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 
 	"github.com/google/uuid"
 	radius "github.com/maddsua/layeh-radius"
@@ -12,7 +13,6 @@ import (
 	"github.com/maddsua/layeh-radius/rfc3162"
 	"github.com/maddsua/layeh-radius/rfc4372"
 	"github.com/maddsua/layeh-radius/rfc4679"
-	"github.com/maddsua/layeh-radius/rfc5580"
 )
 
 type authenticator struct {
@@ -39,10 +39,16 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 		}
 	}
 
-	clientIP := net.IP(rfc5580.LocationData_Get(req.Packet))
-	nasIP := net.IP(rfc2865.NASIPAddress_Get(req.Packet))
-	if nasIP == nil {
-		nasIP = net.IP(rfc3162.NASIPv6Address_Get(req.Packet))
+	var clientIP net.IP
+	if val, _, has := strings.Cut(rfc2865.FramedRoute_GetString(req.Packet), " "); has {
+		if ip, _, err := net.ParseCIDR(val); err == nil {
+			clientIP = ip
+		}
+	}
+
+	proxyIp := net.IP(rfc2865.NASIPAddress_Get(req.Packet))
+	if proxyIp == nil {
+		proxyIp = net.IP(rfc3162.NASIPv6Address_Get(req.Packet))
 	}
 
 	nasPort := rfc2865.NASPort_Get(req.Packet)
@@ -53,19 +59,19 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("nas_ip", nasIP.String()),
+			slog.String("proxy_ip", proxyIp.String()),
 			slog.Int("nas_port", int(nasPort)))
 		return
 	}
 
-	if user.ProxyAddr != "" && user.ProxyAddr != nasIP.String() {
+	if user.ProxyAddr != "" && user.ProxyAddr != proxyIp.String() {
 		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: ProxyAddr denied",
 			slog.String("nas_ip", req.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("nas_ip", nasIP.String()),
+			slog.String("proxy_ip", proxyIp.String()),
 			slog.Int("nas_port", int(nasPort)))
 		return
 	}
@@ -77,7 +83,7 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("nas_ip", nasIP.String()),
+			slog.String("proxy_ip", proxyIp.String()),
 			slog.Int("nas_port", int(nasPort)))
 		return
 	}
@@ -88,7 +94,7 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 		slog.String("username", username),
 		slog.String("password", password),
 		slog.String("client_ip", clientIP.String()),
-		slog.String("nas_ip", nasIP.String()),
+		slog.String("proxy_ip", proxyIp.String()),
 		slog.Int("nas_port", int(nasPort)))
 
 	if val := user.RateRx; val > 0 {
