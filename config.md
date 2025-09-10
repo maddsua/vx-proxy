@@ -4,7 +4,7 @@ The VX config file sets the base service options as well as default session opti
 
 File format: `yml`
 
-Acutal file examples can be found at [cmd/vx-proxy/vx-proxy.yml](./cmd/vx-proxy/vx-proxy.yml) or [/etc/vx-proxy/vx-proxy.yml](/etc/vx-proxy/vx-proxy.yml) after installing the package.
+Acutal file examples can be found at [cmd/vx-proxy/vx-proxy.yml](./cmd/vx-proxy/vx-proxy.yml) or `/etc/vx-proxy/vx-proxy.yml` after installing the package.
 
 ## Sections reference
 
