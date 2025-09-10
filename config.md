@@ -49,6 +49,8 @@ Properties:
 
 Configures which services are run by VX
 
+Note: swarm refers to a service that's listening on multiple ports/addresses. It as nothing to do with docke swarm or anything like that.
+
 #### services -> http
 
 Configures HTTP service inbound swarm.
