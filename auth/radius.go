@@ -257,17 +257,20 @@ func (this *radiusController) asyncRefresh() {
 
 		case time.Since(sess.lastUpdated) > updateInterval:
 
-			slog.Debug("RADIUS: Session accounting update",
-				slog.String("sid", sess.ID.String()),
-				slog.Int("rx", int(sess.TrafficCtl.AccountingRx.Load())),
-				slog.Int("tx", int(sess.TrafficCtl.AccountingTx.Load())))
+			if sess.TrafficCtl.AccountingRx.Load() > 0 || sess.TrafficCtl.AccountingTx.Load() > 0 {
 
-			if err := this.acctUpdateSession(ctx, sess); err != nil {
-				slog.Error("RADIUS: Failed to update session accounting",
-					slog.String("err", err.Error()),
-					slog.String("sid", sess.ID.String()))
-			} else {
-				sess.lastUpdated = time.Now()
+				slog.Debug("RADIUS: Session accounting update",
+					slog.String("sid", sess.ID.String()),
+					slog.Int("rx", int(sess.TrafficCtl.AccountingRx.Load())),
+					slog.Int("tx", int(sess.TrafficCtl.AccountingTx.Load())))
+
+				if err := this.acctUpdateSession(ctx, sess); err != nil {
+					slog.Error("RADIUS: Failed to update session accounting",
+						slog.String("sid", sess.ID.String()),
+						slog.String("err", err.Error()))
+				} else {
+					sess.lastUpdated = time.Now()
+				}
 			}
 		}
 	}
@@ -579,11 +582,6 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 
 	defer this.errorRate.Add()
 
-	volRx, volTx := sess.TrafficCtl.AccountingRx.Load(), sess.TrafficCtl.AccountingTx.Load()
-	if volRx == 0 && volTx == 0 {
-		return nil
-	}
-
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
@@ -594,11 +592,13 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 		panic(err)
 	}
 
-	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(volRx)); err != nil {
+	rxVolume := sess.TrafficCtl.AccountingRx.Load()
+	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(rxVolume)); err != nil {
 		panic(err)
 	}
 
-	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(volTx)); err != nil {
+	txVolume := sess.TrafficCtl.AccountingTx.Load()
+	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(txVolume)); err != nil {
 		panic(err)
 	}
 
@@ -607,8 +607,8 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 		return err
 	}
 
-	sess.TrafficCtl.AccountingRx.Add(-volRx)
-	sess.TrafficCtl.AccountingTx.Add(-volTx)
+	sess.TrafficCtl.AccountingRx.Add(-rxVolume)
+	sess.TrafficCtl.AccountingTx.Add(-txVolume)
 
 	return nil
 }
