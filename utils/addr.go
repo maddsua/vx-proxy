@@ -131,3 +131,12 @@ func AddrAssigned(addr net.IP) (bool, error) {
 
 	return false, nil
 }
+
+func AddrMaskSize(addr net.IP) int {
+
+	if val := addr.To4(); val != nil {
+		return net.IPv4len * 8
+	}
+
+	return net.IPv6len * 8
+}

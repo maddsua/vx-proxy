@@ -21,7 +21,6 @@ import (
 	"github.com/maddsua/layeh-radius/rfc3162"
 	"github.com/maddsua/layeh-radius/rfc3576"
 	"github.com/maddsua/layeh-radius/rfc4679"
-	"github.com/maddsua/layeh-radius/rfc5580"
 	"github.com/maddsua/layeh-radius/rfc6911"
 	"github.com/maddsua/vx-proxy/utils"
 )
@@ -394,16 +393,21 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	req := radius.New(radius.CodeAccessRequest, this.secret)
 
 	if err := rfc2865.UserName_SetString(req, auth.Username); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2865.UserName: %v", err))
 	}
 
 	if err := rfc2865.UserPassword_SetString(req, auth.Password); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2865.UserPassword: %v", err))
 	}
 
 	if auth.ClientIP != nil {
-		if err := rfc5580.LocationData_Set(req, auth.ClientIP); err != nil {
-			panic(err)
+
+		val := fmt.Sprintf("%s/%d 0.0.0.0",
+			auth.ClientIP.String(),
+			utils.AddrMaskSize(auth.ClientIP))
+
+		if err := rfc2865.FramedRoute_Set(req, []byte(val)); err != nil {
+			panic(fmt.Errorf("set: rfc2865.FramedRoute: %v", err))
 		}
 	}
 
@@ -411,19 +415,17 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 	case net.IPv4len:
 		if err := rfc2865.NASIPAddress_Set(req, auth.NasAddr); err != nil {
-			panic(err)
+			panic(fmt.Errorf("set: rfc2865.NASIPAddress: %v", err))
 		}
 
 	case net.IPv6len:
 		if err := rfc3162.NASIPv6Address_Set(req, auth.NasAddr); err != nil {
-			panic(err)
+			panic(fmt.Errorf("set: rfc3162.NASIPv6Address: %v", err))
 		}
 	}
 
-	if auth.NasPort != 0 {
-		if err := rfc2865.NASPort_Set(req, rfc2865.NASPort(auth.NasPort)); err != nil {
-			panic(err)
-		}
+	if err := rfc2865.NASPort_Set(req, rfc2865.NASPort(auth.NasPort)); err != nil {
+		panic(fmt.Errorf("set: rfc2865.NASPort: %v", err))
 	}
 
 	resp, err := this.exchangeAuth(ctx, req)
@@ -550,11 +552,11 @@ func (this *radiusController) acctStartSession(ctx context.Context, sess *Sessio
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Start); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctStatusType: %v", err))
 	}
 
 	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctSessionID: %v", err))
 	}
 
 	if _, err := this.exchangeAcct(ctx, req); err != nil {
@@ -572,21 +574,21 @@ func (this *radiusController) acctUpdateSession(ctx context.Context, sess *Sessi
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_InterimUpdate); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctStatusType: %v", err))
 	}
 
 	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctSessionID: %v", err))
 	}
 
 	rxVolume := sess.Traffic.AcctRx.Load()
 	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(rxVolume)); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctInputOctets: %v", err))
 	}
 
 	txVolume := sess.Traffic.AcctTx.Load()
 	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(txVolume)); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctOutputOctets: %v", err))
 	}
 
 	if _, err := this.exchangeAcct(ctx, req); err != nil {
@@ -607,19 +609,19 @@ func (this *radiusController) acctStopSession(ctx context.Context, sess *Session
 	req := radius.New(radius.CodeAccountingRequest, this.secret)
 
 	if err := rfc2866.AcctStatusType_Set(req, rfc2866.AcctStatusType_Value_Stop); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctStatusType: %v", err))
 	}
 
 	if err := rfc2866.AcctSessionID_Set(req, sess.ID[:]); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctSessionID: %v", err))
 	}
 
 	if err := rfc2866.AcctInputOctets_Set(req, rfc2866.AcctInputOctets(sess.Traffic.AcctRx.Load())); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctInputOctets: %v", err))
 	}
 
 	if err := rfc2866.AcctOutputOctets_Set(req, rfc2866.AcctOutputOctets(sess.Traffic.AcctTx.Load())); err != nil {
-		panic(err)
+		panic(fmt.Errorf("set: rfc2866.AcctOutputOctets: %v", err))
 	}
 
 	if _, err := this.exchangeAcct(ctx, req); err != nil {
