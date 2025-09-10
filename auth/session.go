@@ -28,7 +28,7 @@ type Session struct {
 	FramedHttpClient *http.Client
 
 	//	Traffic controller shit
-	TrafficCtl *TrafficCtl
+	Traffic *TrafficCtl
 
 	//	Accounting tracking
 	lastActivity time.Time
@@ -100,7 +100,7 @@ func (this *Session) Close() {
 		this.cancelCtx()
 	}
 
-	this.TrafficCtl.Close()
+	this.Traffic.Close()
 
 	this.Wg.Wait()
 

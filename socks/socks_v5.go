@@ -194,7 +194,7 @@ func (this *socksV5Proxy) connect(conn net.Conn, sess *auth.Session) {
 		return
 	}
 
-	tctl, err := sess.TrafficCtl.Next()
+	tctl, err := sess.Traffic.Next()
 	if err != nil {
 		slog.Debug("SOCKSv5: Session: Connection refused",
 			slog.String("nas_addr", nasIP.String()),

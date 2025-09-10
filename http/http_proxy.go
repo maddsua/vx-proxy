@@ -207,7 +207,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		return rw.Writer.Flush()
 	}
 
-	tctl, err := sess.TrafficCtl.Next()
+	tctl, err := sess.Traffic.Next()
 	if err != nil {
 		slog.Debug("HTTP tunnel: Session: Connection refused",
 			slog.String("nas_addr", nasIP.String()),

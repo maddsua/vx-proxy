@@ -44,8 +44,8 @@ type TrafficCtl struct {
 	MinimumRateRx int
 	MinimumRateTx int
 
-	AccountingRx atomic.Int64
-	AccountingTx atomic.Int64
+	AcctRx atomic.Uint32
+	AcctTx atomic.Uint32
 }
 
 func (this *TrafficCtl) refreshRoutine() {
@@ -63,8 +63,8 @@ func (this *TrafficCtl) refreshRoutine() {
 			deltaRx := entry.deltaRx.Swap(0)
 			deltaTx := entry.deltaTx.Swap(0)
 
-			this.AccountingRx.Add(deltaRx)
-			this.AccountingTx.Add(deltaTx)
+			this.AcctRx.Add(deltaRx)
+			this.AcctTx.Add(deltaTx)
 
 			//	remove connections that have been closed
 			if entry.done {
@@ -190,8 +190,8 @@ type ConnCtl struct {
 	id   int
 	done bool
 
-	deltaRx atomic.Int64
-	deltaTx atomic.Int64
+	deltaRx atomic.Uint32
+	deltaTx atomic.Uint32
 
 	rateRx int
 	rateTx int
@@ -264,12 +264,12 @@ func (this connBandwidthCtl) Bandwidth() (int, bool) {
 }
 
 type connAccounter struct {
-	val *atomic.Int64
+	val *atomic.Uint32
 }
 
 func (this connAccounter) Account(delta int) {
 	if delta > 0 {
-		this.val.Add(int64(delta))
+		this.val.Add(max(0, uint32(delta)))
 	}
 }
 

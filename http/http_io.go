@@ -28,7 +28,7 @@ func framedClient(sess *auth.Session, dns *net.Resolver) *http.Client {
 				return nil, err
 			}
 
-			tctl, err := sess.TrafficCtl.Next()
+			tctl, err := sess.Traffic.Next()
 			if err != nil {
 				return nil, err
 			}
