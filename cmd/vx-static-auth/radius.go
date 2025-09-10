@@ -61,7 +61,7 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 	if user.ProxyAddr != "" && user.ProxyAddr != nasIP.String() {
 		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: ProxyAddr denied",
-			slog.String("nas_addr", req.RemoteAddr.String()),
+			slog.String("nas_ip", req.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
@@ -73,7 +73,7 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 	if user.ProxyPort != 0 && user.ProxyPort != int(nasPort) {
 		w.Write(req.Response(radius.CodeAccessReject))
 		slog.Info("Auth: Rejected: Port denied",
-			slog.String("nas_addr", req.RemoteAddr.String()),
+			slog.String("nas_ip", req.RemoteAddr.String()),
 			slog.String("username", username),
 			slog.String("password", password),
 			slog.String("client_ip", clientIP.String()),
@@ -84,7 +84,7 @@ func (this authenticator) ServeRADIUS(w radius.ResponseWriter, req *radius.Reque
 
 	resp := req.Response(radius.CodeAccessAccept)
 	slog.Info("Auth: Accepted",
-		slog.String("nas_addr", req.RemoteAddr.String()),
+		slog.String("nas_ip", req.RemoteAddr.String()),
 		slog.String("username", username),
 		slog.String("password", password),
 		slog.String("client_ip", clientIP.String()),

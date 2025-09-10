@@ -20,7 +20,6 @@ import (
 	"github.com/maddsua/layeh-radius/rfc2866"
 	"github.com/maddsua/layeh-radius/rfc3162"
 	"github.com/maddsua/layeh-radius/rfc3576"
-	"github.com/maddsua/layeh-radius/rfc4372"
 	"github.com/maddsua/layeh-radius/rfc4679"
 	"github.com/maddsua/layeh-radius/rfc5580"
 	"github.com/maddsua/layeh-radius/rfc6911"
@@ -376,7 +375,6 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 		slog.String("method", "passwd"),
 		slog.String("username", auth.Username),
 		slog.String("sid", sess.ID.String()),
-		slog.String("user", sess.ClientID),
 		slog.Int("dl", sess.Traffic.ActualRateRx),
 		slog.Int("up", sess.Traffic.ActualRateTx),
 		slog.Int("max_dl", sess.Traffic.MaximumRateRx),
@@ -451,7 +449,6 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	sess := Session{
 		ID:       sessUuid,
 		UserName: &auth.Username,
-		ClientID: "<nil>",
 
 		FramedIP: auth.NasAddr,
 
@@ -459,16 +456,6 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 
 		lastActivity: time.Now(),
 		lastUpdated:  time.Now(),
-	}
-
-	if val := rfc4372.ChargeableUserIdentity_Get(resp); len(val) > 0 {
-		if uid, err := uuid.FromBytes(val); err == nil {
-			sess.ClientID = uid.String()
-		} else if uid, err := uuid.Parse(string(val)); err == nil {
-			sess.ClientID = uid.String()
-		} else if uid, err := ParseTextID(string(val)); err == nil {
-			sess.ClientID = uid
-		}
 	}
 
 	if addr := rfc2865.FramedIPAddress_Get(resp); addr != nil {
