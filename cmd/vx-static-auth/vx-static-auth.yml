@@ -1,3 +1,7 @@
+# Licensed under MIT License
+# (c) 2025 maddsua
+# Upstream: https://github.com/maddsua/vx-proxy
+
 radius:
   secret: secret
 users:

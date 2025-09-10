@@ -1,22 +1,43 @@
+# Licensed under MIT License
+# (c) 2025 maddsua
+# Upstream: https://github.com/maddsua/vx-proxy
+
 auth:
   radius:
+    # your remove authentication server addresses
     auth_addr: localhost:1812
+    # accounting address can actually be the same as authentication address. it all depends on the server that you're using on the other end
     acct_addr: localhost:1813
+    # this is the address vx will try to bind it's DAC service
     listen_dac: localhost:3799
+    # this is the sercret token that makes radius safe-ish
     secret: secret
-#  session:
-#    actual_rate_rx: 100K
-#    actual_rate_tx: 100K
-#    maximum_rate_rx: 1M
-#    maximum_rate_tx: 1M
-#    minimum_rate_rx: 100K
-#    minimum_rate_tx: 100K
+  session:
+    # set dynamic session bandwidth
+    actual_rate_rx: 75M
+    actual_rate_tx: 50M
+    # ensure that no single connection gets more than 10M of bandwidth
+    maximum_rate_rx: 10M
+    maximum_rate_tx: 10M
+    # also ensure than no connection gets it's bandwidth dropped below 1M
+    minimum_rate_rx: 1M
+    minimum_rate_tx: 1M
+    # set session connection limit to a bigger value for no reason whatsoever
+    connection_limit: 1024
 services:
+  # configures http proxy swarm service
   http:
+    # listn on ports from 8810 to 8819
     port_range: 8810-8819
+    # and enable http request forwarding
     forward_enable: true
+  # configures http proxy swarm service
   socks:
+    # listn on ports from 8820 to 8825
     port_range: 8820-8825
+  # configures the simple telemetry service that vx uses for uptime and whatnot
   telemetry:
+    # it's listen address
     listen_addr: localhost:1111
+# enable debug logging
 debug: true
