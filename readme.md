@@ -28,10 +28,16 @@ Features:
 - ✅ Basic proxy auth (username/password)
 - ⏳ TLS (HTTPS) proxy
 
-## Deploying
+## Spinning up an instance
 
-The RADIUS protocol is used to control vx. Refer to [The RADIUS section](./radius.md) to learn more.
+First of all you'd need to have a compatible RADIUS-based AAA server. Refer to [the RADIUS section](./radius.md) to learn more.
 
-Config reference can be found [here](./config.md)
+After a AAA server is up and running the vx config file has to be updated with ip address(es) of the server as well as with a new RADIUS protocol secret. Refer to [the config section](./config.md) for more info on configuration options. By default the config is located at `/etc/vx-proxy/vx-proxy.yml`.
 
-It's best to deploy vx directly onto a VPS as it needs to see the original IP addresses of incoming connections. A debian binary package is available in [Releases](https://github.com/maddsua/vx-proxy/releases). Don't forget to change the config file to suit your needs.
+Make sure that desired proxy services have valid port ranges assigned to them. After the configuration step is done, vx can be started as a systemd service or it can be run as a command.
+
+### Deployment target
+
+It's best to deploy vx directly onto a VPS as it needs to see the original IP addresses of incoming connections. A more sophisticated docker network configuration could help with lifting this limitation, however I have no plans in doing that right now.
+
+A binary Debian package is available in [Releases](https://github.com/maddsua/vx-proxy/releases)

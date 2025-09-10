@@ -18,12 +18,12 @@ Options for the RADIUS AAA module
 
 Properties:
 
-| Key | Description | Type | Format |
-| --- | --- | --- | --- |
-| `auth_addr` | Sets RADIUS authentication server address | `string` | `ipaddr` or `ipaddr:port` |
-| `acct_addr` | Sets RADIUS accounting server | `string` | `ipaddr` or `ipaddr:port` |
-| `listen_dac` | Sets DAC's listen address. Please note that DAC is a local service running on VX that listens to incoming CoA and DM messages and updates it's sessions accordingly. The address is usually just 0.0.0.0 or a specific address assigned to the hos VX is sitting at. | `string` | `ipaddr` or `ipaddr:port` |
-| `secret` | RADIUS secret token. Make sure it's actually a secret xD | `string` | |
+| Key | Description | Type | Format | Can reference environment variables |
+| --- | --- | --- | --- | --- |
+| `auth_addr` | Sets RADIUS authentication server address | `string` | `ipaddr` or `ipaddr:port` | \+ |
+| `acct_addr` | Sets RADIUS accounting server | `string` | `ipaddr` or `ipaddr:port` | \+ |
+| `listen_dac` | Sets DAC's listen address. Please note that DAC is a local service running on VX that listens to incoming CoA and DM messages and updates it's sessions accordingly. The address is usually just 0.0.0.0 or a specific address assigned to the hos VX is sitting at. | `string` | `ipaddr` or `ipaddr:port` | \+ |
+| `secret` | RADIUS secret token. Make sure it's actually a secret xD | `string` | | \+ |
 
 #### auth -> session
 
