@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -41,34 +40,4 @@ func SessionIdFromBytes(val []byte) uuid.NullUUID {
 	}
 
 	return uuid.NullUUID{}
-}
-
-func ParseTextID(val string) (string, error) {
-
-	if val = strings.TrimSpace(val); val == "" {
-		return "", errors.New("empty value")
-	}
-
-	for _, char := range val {
-
-		switch char {
-		case '-', '_':
-			continue
-		}
-
-		switch {
-
-		case char >= '0' && char <= '9':
-			continue
-		case char >= 'A' && char <= 'Z':
-			continue
-		case char >= 'a' && char <= 'z':
-			continue
-
-		default:
-			return "", errors.New("unexpected character")
-		}
-	}
-
-	return val, nil
 }

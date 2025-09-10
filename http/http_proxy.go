@@ -42,7 +42,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 	if err != nil {
 
 		slog.Debug("HTTP proxy: Invalid authorization data",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("err", err.Error()))
@@ -54,7 +54,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 	} else if creds == nil {
 
 		slog.Debug("HTTP proxy: Unauthorized",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()))
 
@@ -72,14 +72,14 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 
 	if err == auth.ErrUnauthorized {
 		slog.Debug("HTTP proxy: Unauthorized",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()))
 		wrt.WriteHeader(http.StatusForbidden)
 		return
 	} else if err != nil {
 		slog.Error("HTTP proxy: Auth error",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("authd_type", this.Auth.Type()),
@@ -94,7 +94,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 	dstHost := getRequestTargetHost(req)
 	if dstHost == "" {
 		slog.Debug("HTTP proxy: Unable to determine target host",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("sid", sess.ID.String()))
@@ -104,7 +104,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 
 	if err := utils.DestHostAllowed(dstHost); err != nil {
 		slog.Warn("HTTP proxy: Dialed host not allowed",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ID.String()),
@@ -121,7 +121,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 		conn, rw, err := wrt.(http.Hijacker).Hijack()
 		if err != nil {
 			slog.Warn("HTTP tunnel: Connection not switchable",
-				slog.String("nas_addr", nasIP.String()),
+				slog.String("nas_ip", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("client_id", sess.ID.String()),
@@ -138,7 +138,7 @@ func (this *HttpProxy) ServeHTTP(wrt http.ResponseWriter, req *http.Request) {
 
 		if !this.ForwardEnable {
 			slog.Debug("HTTP proxy: Forward disabled",
-				slog.String("nas_addr", nasIP.String()),
+				slog.String("nas_ip", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("sid", sess.ID.String()))
@@ -156,7 +156,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	nasIP, nasPort, _ := utils.GetAddrPort(conn.LocalAddr())
 
 	slog.Debug("HTTP tunnel: HTTP connection switched",
-		slog.String("nas_addr", nasIP.String()),
+		slog.String("nas_ip", nasIP.String()),
 		slog.Int("nas_port", nasPort),
 		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ID.String()),
@@ -166,7 +166,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		slog.Debug("HTTP tunnel: Failed to set timeouts",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ID.String()),
@@ -210,11 +210,10 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	tctl, err := sess.Traffic.Next()
 	if err != nil {
 		slog.Debug("HTTP tunnel: Session: Connection refused",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("sid", sess.ID.String()),
-			slog.String("client_id", sess.ClientID))
+			slog.String("sid", sess.ID.String()))
 		flushResponse(http.StatusServiceUnavailable, "", nil)
 		return
 	}
@@ -226,10 +225,9 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	if err != nil {
 
 		slog.Debug("HTTP tunnel: Unable to dial destination",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("host", hostAddr),
@@ -246,7 +244,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	if err := flushResponse(200, "Connection established", nil); err != nil {
 		slog.Debug("HTTP tunnel: Failed to establish proxy connection",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ID.String()),
@@ -255,7 +253,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 	}
 
 	slog.Debug("HTTP tunnel: Connected",
-		slog.String("nas_addr", nasIP.String()),
+		slog.String("nas_ip", nasIP.String()),
 		slog.Int("nas_port", nasPort),
 		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ID.String()),
@@ -267,7 +265,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 		buff, err := rw.Reader.Peek(buffered)
 		if err != nil {
 			slog.Debug("HTTP tunnel: Failed to peek tx bufferred data",
-				slog.String("nas_addr", nasIP.String()),
+				slog.String("nas_ip", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("client_id", sess.ID.String()),
@@ -279,7 +277,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 		if err := utils.PipeIO(sess.Context(), dstConn, bytes.NewReader(buff), tctl.BandwidthRx(), tctl.AccounterRx()); err != nil {
 			slog.Debug("HTTP tunnel: Failed flush tx buffer",
-				slog.String("nas_addr", nasIP.String()),
+				slog.String("nas_ip", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
 				slog.String("client_id", sess.ID.String()),
@@ -297,7 +295,7 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	if err := conn.SetDeadline(time.Time{}); err != nil {
 		slog.Debug("HTTP tunnel: Failed to reset timeouts",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
 			slog.String("client_id", sess.ID.String()),
@@ -319,10 +317,9 @@ func (this *HttpProxy) ServeTunnel(conn net.Conn, rw *bufio.ReadWriter, sess *au
 
 	if err := piper.Pipe(sess.Context()); err != nil {
 		slog.Debug("HTTP tunnel: Broken pipe",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("host", hostAddr),
 			slog.String("err", err.Error()))
@@ -347,10 +344,9 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	connection, upgrade := req.Header.Get("Connection"), req.Header.Get("Upgrade")
 	if strings.Contains(strings.ToLower(connection), "upgrade") && upgrade != "" {
 		slog.Debug("HTTP forward: Upgrade not allowed",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("host", forwardReq.Host),
@@ -374,10 +370,9 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	resp, err := client.Do(forwardReq)
 	if err != nil {
 		slog.Debug("HTTP forward: Request rejected",
-			slog.String("nas_addr", nasIP.String()),
+			slog.String("nas_ip", nasIP.String()),
 			slog.Int("nas_port", nasPort),
 			slog.String("client_ip", clientIP.String()),
-			slog.String("client_id", sess.ClientID),
 			slog.String("sid", sess.ID.String()),
 			slog.String("username", *sess.UserName),
 			slog.String("host", forwardReq.Host),
@@ -390,7 +385,7 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 	defer resp.Body.Close()
 
 	slog.Debug("HTTP forward: Sent",
-		slog.String("nas_addr", nasIP.String()),
+		slog.String("nas_ip", nasIP.String()),
 		slog.Int("nas_port", nasPort),
 		slog.String("client_ip", clientIP.String()),
 		slog.String("client_id", sess.ID.String()),
@@ -416,10 +411,9 @@ func (this *HttpProxy) ServeForward(wrt http.ResponseWriter, req *http.Request, 
 
 		if _, err := io.Copy(utils.FlushWriter{Writer: wrt}, resp.Body); err != nil {
 			slog.Debug("HTTP forward: Copy body failed",
-				slog.String("nas_addr", nasIP.String()),
+				slog.String("nas_ip", nasIP.String()),
 				slog.Int("nas_port", nasPort),
 				slog.String("client_ip", clientIP.String()),
-				slog.String("client_id", sess.ClientID),
 				slog.String("sid", sess.ID.String()),
 				slog.String("username", *sess.UserName),
 				slog.String("host", forwardReq.Host),

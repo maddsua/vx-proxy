@@ -15,7 +15,6 @@ import (
 type Session struct {
 	ID       uuid.UUID
 	UserName *string
-	ClientID string
 
 	//	An outbound IP assigned to this session
 	FramedIP net.IP
