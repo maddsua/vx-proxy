@@ -39,5 +39,9 @@ services:
   telemetry:
     # it's listen address
     listen_addr: localhost:1111
+# DNS server configuration
+dns:
+  # hostname or server address
+  server: 8.8.8.8
 # enable debug logging
 debug: true
