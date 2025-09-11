@@ -80,6 +80,16 @@ Properties:
 | --- | --- | --- | --- |
 | `listen_addr` | Telemetry service listen address/port | `string` | `ipaddr` or `ipaddr:port` |
 
+### dns
+
+Sets a DNS server to be used for all user requests
+
+Properties:
+
+| Key | Description | Type | Format |
+| --- | --- | --- | --- |
+| `server` | DNS server's host name or address | `string` | `ipaddr` or `ipaddr:port` |
+
 ### debug
 
 Enables verbose logging (aka debug mode). Same as providing `-debug` command line argument.
