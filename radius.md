@@ -13,6 +13,7 @@ Generally, the AAA workflow looks like this:
 # This doesn't allow any data transfer until a session started through the accounting
 
 NAS: Access-Request
+	rfc2865.Service-Type === Framed
 	rfc2865.User-Name
 	rfc2865.User-Password
 	rfc2865.NAS-IP-Address OR rfc2865.NAS-IPv6-Address
@@ -20,6 +21,7 @@ NAS: Access-Request
 	rfc2865.Framed-Route
 
 AUTH: Access-Accept OR Access-Reject
+	rfc2865.Service-Type === Framed
 	rfc2866.Acct-Session-ID
 	rfc2865.Framed-IP-Address OR rfc6911.Framed-IPv6-Address
 	rfc2865.Session-Timeout
@@ -92,6 +94,7 @@ To provide more details on how to control VX via RADIUS here's a complete list o
 
 | Attribute | Description | Used in | Dynamic (can be updated with CoA) | Type |
 | --- | --- | --- | --- | --- |
+| `rfc2865.Service-Type` | Always set to `Framed` to indicate client intention. May or may not be present in auth server responses. Any values returned by it except for `Framed` will cause VX to abort session authorization | `Access-Request`, `Access-Accept` |  | `enum` |
 | `rfc2865.User-Name` | Plaintext username of a connecting user | `Access-Request` | | `string` |
 | `rfc2865.User-Password` | Connecting user's password | `Access-Request` | | `secret` |
 | `rfc2865.NAS-IP-Address` or `rfc2865.NAS-IPv6-Address` | Contains proxy's IP address that a client is trying to connect to | `Access-Request` | | `ipaddr` |
