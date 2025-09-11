@@ -22,7 +22,7 @@ NAS: Access-Request
 
 AUTH: Access-Accept OR Access-Reject
 	rfc2865.Service-Type === Framed
-	rfc2866.Acct-Session-ID
+	rfc2866.Acct-Session-ID *
 	rfc2865.Framed-IP-Address OR rfc6911.Framed-IPv6-Address
 	rfc2865.Session-Timeout
 	rfc2865.Idle-Timeout
@@ -33,6 +33,9 @@ AUTH: Access-Accept OR Access-Reject
 	rfc4679.Maximum-Data-Rate-Downstream
 	rfc4679.Maximum-Data-Rate-Upstream
 
+# If no Data-Rate settings are provided by a server, default values would be used.
+# If no Framed-IP* is provided by a server, the original NAS IP address will be used for outbound proxy connections.
+
 # Starting a session
 
 NAS: Accounting-Request
@@ -40,7 +43,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Session-ID
 
 ACCT: Accounting-Response
-
+	[no attributes expected]
 ...
 
 NAS: Accounting-Request
@@ -50,7 +53,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Output-Octets
 
 ACCT: Accounting-Response
-
+	[no attributes expected]
 ...
 
 # Terminating a session
@@ -62,6 +65,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Output-Octets
 
 ACCT: Accounting-Response
+	[no attributes expected]
 ```
 
 As well as basic AAA VX also supports dynamic authentication stuff like updating session parameters and whatnot using RADIUS DAC, which has the following flow:
@@ -71,7 +75,7 @@ As well as basic AAA VX also supports dynamic authentication stuff like updating
 # Updating existing session connection speed
 
 DAC: CoA-Request
-	rfc2866.Acct-Session-ID
+	rfc2866.Acct-Session-ID *
 	rfc2865.Idle-Timeout
 	rfc4679.Actual-Data-Rate-Downstream
 	rfc4679.Actual-Data-Rate-Upstream
@@ -83,10 +87,12 @@ NAS: CoA-ACK OR CoA-NACK
 # Terminating a session
 
 DAC: Disconnect-Request
-	rfc2866.Acct-Session-ID
+	rfc2866.Acct-Session-ID *
 
 NAS: Disconnect-ACK OR Disconnect-NAK
 ```
+
+\* Required response/DAC request attributes
 
 ## Attribute details
 
