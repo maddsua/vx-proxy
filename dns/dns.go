@@ -13,7 +13,7 @@ type Config struct {
 
 func NewResolver(dnsaddr string) (*net.Resolver, error) {
 
-	const defaultTimeout = 15 * time.Second
+	const defaultTimeout = 10 * time.Second
 
 	//	set default DNS udp port
 	var hostname string
