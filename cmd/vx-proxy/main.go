@@ -75,27 +75,28 @@ func main() {
 		slog.Debug("Enabled")
 	}
 
-	var customDNS *net.Resolver
+	var dnsResolver *net.Resolver
 
-	var setCustomDns = func(addr string) {
+	var setDNS = func(addr string) {
 
 		rslv, err := dns.NewResolver(addr)
 		if err != nil {
-			slog.Error("Failed to enable custom DNS resolver",
+			slog.Error("DNS: Provided server unavailable",
+				slog.String("addr", addr),
 				slog.String("err", err.Error()))
 			os.Exit(1)
 		}
 
-		customDNS = rslv
-
-		slog.Info("Using a custom DNS resolver",
+		slog.Info("DNS: Set server",
 			slog.String("addr", addr))
+
+		dnsResolver = rslv
 	}
 
-	if val := os.Getenv("VX_USE_DNS"); val != "" {
-		setCustomDns(val)
+	if val := os.Getenv("VX_DNS"); val != "" {
+		setDNS(val)
 	} else if cfg.Dns.Server != "" {
-		setCustomDns(cfg.Dns.Server)
+		setDNS(cfg.Dns.Server)
 	}
 
 	authc, err := auth.NewRadiusController(cfg.Auth.Radius, cfg.Auth.Session.Unwrap())
@@ -119,7 +120,7 @@ func main() {
 		svc := httproxy.HttpServer{
 			ServerConfig: *cfg.Services.Http,
 			Auth:         authc,
-			Dns:          customDNS,
+			Dns:          dnsResolver,
 		}
 
 		go func() {
@@ -139,7 +140,7 @@ func main() {
 		svc := socks.SocksServer{
 			ServerConfig: *cfg.Services.Socks,
 			Auth:         authc,
-			Dns:          customDNS,
+			Dns:          dnsResolver,
 		}
 
 		go func() {
