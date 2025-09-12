@@ -13,6 +13,7 @@ Generally, the AAA workflow looks like this:
 # This doesn't allow any data transfer until a session started through the accounting
 
 NAS: Access-Request
+	rfc2865.Service-Type === Framed
 	rfc2865.User-Name
 	rfc2865.User-Password
 	rfc2865.NAS-IP-Address OR rfc2865.NAS-IPv6-Address
@@ -20,7 +21,8 @@ NAS: Access-Request
 	rfc2865.Framed-Route
 
 AUTH: Access-Accept OR Access-Reject
-	rfc2866.Acct-Session-ID
+	rfc2865.Service-Type === Framed
+	rfc2866.Acct-Session-ID *
 	rfc2865.Framed-IP-Address OR rfc6911.Framed-IPv6-Address
 	rfc2865.Session-Timeout
 	rfc2865.Idle-Timeout
@@ -31,6 +33,9 @@ AUTH: Access-Accept OR Access-Reject
 	rfc4679.Maximum-Data-Rate-Downstream
 	rfc4679.Maximum-Data-Rate-Upstream
 
+# If no Data-Rate settings are provided by a server, default values would be used.
+# If no Framed-IP* is provided by a server, the original NAS IP address will be used for outbound proxy connections.
+
 # Starting a session
 
 NAS: Accounting-Request
@@ -38,7 +43,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Session-ID
 
 ACCT: Accounting-Response
-
+	[no attributes expected]
 ...
 
 NAS: Accounting-Request
@@ -48,7 +53,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Output-Octets
 
 ACCT: Accounting-Response
-
+	[no attributes expected]
 ...
 
 # Terminating a session
@@ -60,6 +65,7 @@ NAS: Accounting-Request
 	rfc2866.Acct-Output-Octets
 
 ACCT: Accounting-Response
+	[no attributes expected]
 ```
 
 As well as basic AAA VX also supports dynamic authentication stuff like updating session parameters and whatnot using RADIUS DAC, which has the following flow:
@@ -69,7 +75,7 @@ As well as basic AAA VX also supports dynamic authentication stuff like updating
 # Updating existing session connection speed
 
 DAC: CoA-Request
-	rfc2866.Acct-Session-ID
+	rfc2866.Acct-Session-ID *
 	rfc2865.Idle-Timeout
 	rfc4679.Actual-Data-Rate-Downstream
 	rfc4679.Actual-Data-Rate-Upstream
@@ -81,10 +87,12 @@ NAS: CoA-ACK OR CoA-NACK
 # Terminating a session
 
 DAC: Disconnect-Request
-	rfc2866.Acct-Session-ID
+	rfc2866.Acct-Session-ID *
 
 NAS: Disconnect-ACK OR Disconnect-NAK
 ```
+
+\* Required response/DAC request attributes
 
 ## Attribute details
 
@@ -92,6 +100,7 @@ To provide more details on how to control VX via RADIUS here's a complete list o
 
 | Attribute | Description | Used in | Dynamic (can be updated with CoA) | Type |
 | --- | --- | --- | --- | --- |
+| `rfc2865.Service-Type` | Always set to `Framed` to indicate client intention. May or may not be present in auth server responses. Any values returned by it except for `Framed` will cause VX to abort session authorization | `Access-Request`, `Access-Accept` |  | `enum` |
 | `rfc2865.User-Name` | Plaintext username of a connecting user | `Access-Request` | | `string` |
 | `rfc2865.User-Password` | Connecting user's password | `Access-Request` | | `secret` |
 | `rfc2865.NAS-IP-Address` or `rfc2865.NAS-IPv6-Address` | Contains proxy's IP address that a client is trying to connect to | `Access-Request` | | `ipaddr` |
@@ -107,7 +116,7 @@ To provide more details on how to control VX via RADIUS here's a complete list o
 | `rfc2865.rfc4679.Minimum-Data-Rate-Upstream` | Sets the minimal connection upload speed. If overrides the dynamically calculated bandwidth value if it's lower than this. It does nothing when dynamic bandwidth is not set or is overriden | `Access-Accept`, `CoA-Request` | \+ | `int` |
 | `rfc2865.rfc4679.Maximum-Data-Rate-Downstream` | Sets the maximal connection download speed. It overrides any dynamically calculated banwidth value that is higher than this | `Access-Accept`, `CoA-Request` | \+ | `int` |
 | `rfc2865.rfc4679.Maximum-Data-Rate-Upstream` | Sets the maximal connection upload speed. It overrides any dynamically calculated banwidth value that is higher than this | `Access-Accept`, `CoA-Request` | \+ | `int` |
-| `rfc2866.Acct-Session-ID` | Contains session UUID. First it's returned by `Access-Accept` packet. This ID must be used in all the following `Accounting-Request`s or DAC messages. | `Access-Accept`, `Accounting-Request`, `CoA-Request`, `Disconnect-Request` | | `string` (UUID) |
+| `rfc2866.Acct-Session-ID` | Contains session UUID in binary representation. First it's returned by `Access-Accept` packet. This ID must be used in all the following `Accounting-Request`s or DAC messages. | `Access-Accept`, `Accounting-Request`, `CoA-Request`, `Disconnect-Request` | | `bytes` (UUID) |
 | `rfc2866.Acct-Status-Type` | Tells which accounting operation must be performed | `Accounting-Request` | | `enum` |
 | `rfc2866.Acct-Input-Octets` | Total data volume downloaded by the client since the last update | `Accounting-Request` | | `int` |
 | `rfc2866.Acct-Output-Octets` | Total data volume uploaded by the client since the last update | `Accounting-Request` | | `int` |

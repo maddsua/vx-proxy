@@ -363,7 +363,7 @@ func (this *radiusController) WithPassword(ctx context.Context, auth PasswordAut
 			})
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("radius: Access-Request: %v", err)
 	}
 
 	if err := this.acctStartSession(ctx, sess); err != nil {
@@ -391,6 +391,10 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	defer this.errorRate.Add()
 
 	req := radius.New(radius.CodeAccessRequest, this.secret)
+
+	if err := rfc2865.ServiceType_Set(req, rfc2865.ServiceType_Value_FramedUser); err != nil {
+		panic(fmt.Errorf("set: rfc2865.ServiceType: %v", err))
+	}
 
 	if err := rfc2865.UserName_SetString(req, auth.Username); err != nil {
 		panic(fmt.Errorf("set: rfc2865.UserName: %v", err))
@@ -431,21 +435,33 @@ func (this *radiusController) authRequestAccess(ctx context.Context, auth Passwo
 	resp, err := this.exchangeAuth(ctx, req)
 	if err != nil {
 		this.errorRate.AddError()
-		return nil, fmt.Errorf("radius access request failed: %v", err)
+		return nil, err
 	}
 
+	//	make sure it's not mistakenly reused later on
 	req = nil
 
 	if resp.Code == radius.CodeAccessReject {
 		return nil, ErrUnauthorized
 	} else if resp.Code != radius.CodeAccessAccept {
 		this.errorRate.AddError()
-		return nil, fmt.Errorf("radius access request failed: unexpected response code: %d", resp.Code)
+		return nil, fmt.Errorf("unexpected response code: %s", resp.Code.String())
 	}
 
-	sessUuid, err := uuid.FromBytes(rfc2866.AcctSessionID_Get(resp))
+	if val, err := rfc2865.ServiceType_Lookup(resp); err == nil {
+		if val != rfc2865.ServiceType_Value_FramedUser {
+			return nil, fmt.Errorf("unexpected Service-Type in response: %s", val.String())
+		}
+	}
+
+	acctSessionId := rfc2866.AcctSessionID_Get(resp)
+	if len(acctSessionId) == 0 {
+		return nil, errors.New("no Acct-Session-ID attribute in response")
+	}
+
+	sessUuid, err := uuid.FromBytes(acctSessionId)
 	if err != nil {
-		return nil, errors.New("invalid radius response: Acct-Session-ID is missing or not a valid uuid")
+		return nil, errors.New("attribute Acct-Session-ID is not a valid uuid")
 	}
 
 	sess := Session{
